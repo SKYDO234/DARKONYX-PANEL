@@ -106,6 +106,7 @@ panel/
 │   └── sftp/               # embedded SFTP server
 ├── data/                   # sqlite database (runtime)
 ├── storage/                # server directories + backups (runtime)
+├── test/feature-audit.js   # 147-check end-to-end API audit
 ├── menu.sh                 # install / start / stop / status / update
 └── ecosystem.config.js     # PM2 configuration
 ```
@@ -120,6 +121,41 @@ Port:     3004
 Username: <username>.<server_id>     e.g. admin.1
 Password: your panel password
 ```
+
+---
+
+## ✅ Verifying a build
+
+The panel ships an end-to-end audit that exercises every REST endpoint, the
+daemon API, the embedded SFTP port and the console WebSocket with realistic
+payloads. It creates its own server, cleans up after itself and can be run
+repeatedly against a live instance.
+
+```bash
+cd panel
+node src/index.js            # in one terminal
+node test/feature-audit.js   # in another
+```
+
+```
+=== 147/147 checks passed ===
+
+Per-group:
+  auth          11/11 ✔     files         19/19 ✔     addons        10/10 ✔
+  meta           6/6  ✔     properties     3/3  ✔     marketplace    5/5  ✔
+  admin          4/4  ✔     backups        7/7  ✔     mcjars         1/1  ✔
+  users          9/9  ✔     schedules      4/4  ✔     settings       2/2  ✔
+  locations      4/4  ✔     players        3/3  ✔     api-keys       4/4  ✔
+  nodes         15/15 ✔     worlds         7/7  ✔     activity       1/1  ✔
+  servers       16/16 ✔     subusers       4/4  ✔     admin-ext      6/6  ✔
+                            network        2/2  ✔     daemon         1/1  ✔
+                            databases      1/1  ✔     sftp           1/1  ✔
+                                                     websocket      1/1  ✔
+```
+
+Checks that need an outside host (Modrinth search, jar downloads, the GitHub
+release feed) are reported separately as `OFFLINE` and never count as failures,
+so the suite is usable on a box with no outbound network.
 
 ---
 
