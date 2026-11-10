@@ -73,6 +73,17 @@ async function bootstrap() {
   app.use('/data', express.static(path.join(__dirname, '../public/data')));
   app.use('/addons', express.static(path.join(__dirname, '../public/addons')));
 
+  // Client-side application routes resolve to the DARKONYX SPA shell
+  const SPA_ROUTES = ['/login', '/portal', '/server', '/admin', '/account', '/marketplace'];
+  app.get(SPA_ROUTES, (req, res, next) => {
+    if (/\.(js|css|svg|png|jpg|json|ico|woff2?)$/i.test(req.path)) return next();
+    res.sendFile(path.join(__dirname, '../public/index.html'));
+  });
+  app.get(['/portal/*', '/server/*', '/admin/*'], (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/ws')) return next();
+    res.sendFile(path.join(__dirname, '../public/index.html'));
+  });
+
   // REST API Routes
   app.use('/api', require('./routes/compatRoutes'));
 

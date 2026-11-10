@@ -6,6 +6,24 @@
 
   const state = { tab: 'maps', serverId: null, servers: [], query: '' };
 
+  /* Resolve a downloadable file for a Modrinth project (version-aware) then install */
+  async function installModrinth(projectSlug, title, server) {
+    const gameVersion = server && server.jar_version ? server.jar_version : null;
+    const loader = server && server.jar_type ? String(server.jar_type).toLowerCase() : null;
+    const v = await API.get(`/api/marketplace/project/${encodeURIComponent(projectSlug)}/versions`);
+    const versions = (v.versions || []).filter((x) => x.file && x.file.url);
+    if (!versions.length) throw new Error('No downloadable file found for this project.');
+    const best = (gameVersion ? versions.find((x) => (x.gameVersions || []).includes(gameVersion)) : null) || versions[0];
+    await API.post('/api/marketplace/install', {
+      serverId: state.serverId,
+      downloadUrl: best.file.url,
+      fileName: best.file.filename || `${projectSlug}.jar`,
+      targetType: loader && ['fabric', 'forge', 'neoforge', 'quilt'].includes(loader) ? 'mod' : 'plugin',
+      projectName: title
+    });
+    return best;
+  }
+
   async function view(host) {
     try { state.servers = (await API.get('/api/servers')).servers || []; } catch (e) { state.servers = []; }
     state.serverId = state.servers.length ? state.servers[0].id : null;
@@ -24,7 +42,7 @@
       </div>
 
       <div class="tabs" id="mk-tabs">
-        ${[['maps', 'Worlds & maps', 'map'], ['modrinth', 'Mods & plugins', 'puzzle'], ['modpacks', 'Modpacks', 'package']]
+        ${[['maps', 'Worlds & maps', 'map'], ['plugins', 'Plugins', 'puzzle'], ['modpacks', 'Modpacks', 'package']]
         .map(([id, label, icon]) => `<button class="tab ${id === state.tab ? 'active' : ''}" data-tab="${id}">${I(icon)} ${label}</button>`).join('')}
       </div>
       <div id="mk-body" class="mt-14">${window.el.skeleton(6)}</div>`;
@@ -48,7 +66,7 @@
       body.innerHTML = window.el.skeleton(5);
       try {
         if (state.tab === 'maps') return paintMaps(body);
-        if (state.tab === 'modrinth') return paintModrinth(body);
+        if (state.tab === 'plugins') return paintModrinth(body);
         return paintModpacks(body);
       } catch (e) {
         body.innerHTML = emptyState('alert', 'Marketplace unavailable', e.message);
@@ -63,17 +81,16 @@
     function bindInstall(kind) {
       document.querySelectorAll('[data-install]').forEach((b) => b.onclick = async () => {
         if (!state.serverId) return toast('Select a server first', 'warn');
-        b.disabled = true; b.textContent = 'Installing…';
+        b.disabled = true; b.innerHTML = 'Installing…';
+        const server = state.servers.find((x) => String(x.id) === String(state.serverId));
         try {
           if (kind === 'map') {
             await API.post(`/api/servers/${state.serverId}/worlds/install-map`, { mapId: b.dataset.install });
           } else {
-            await API.post(`/api/marketplace/install`, {
-              serverId: state.serverId, projectId: b.dataset.install, projectType: 'mod', title: b.dataset.title
-            });
+            await installModrinth(b.dataset.install, b.dataset.title, server);
           }
           toast(`${b.dataset.title} installed`, 'ok', 'Installed');
-          b.textContent = 'Installed';
+          b.innerHTML = 'Installed';
         } catch (e) {
           toast(e.message, 'err');
           b.disabled = false; b.innerHTML = `${I('download')} Install`;
@@ -105,39 +122,39 @@
 
     async function paintModrinth(body) {
       const q = state.query || 'essentials';
-      const r = await API.get(`/api/marketplace/search?query=${encodeURIComponent(q)}&limit=24`);
-      const hits = r.hits || r.results || r.projects || [];
+      const r = await API.get(`/api/marketplace/search?query=${encodeURIComponent(q)}&limit=24&projectType=plugin`);
+      const hits = r.projects || r.hits || r.results || [];
       body.innerHTML = hits.length ? `<div class="srv-grid">${hits.map((h) => `
         <article class="srv-card" style="cursor:default">
           <div class="srv-glow"></div>
           <div class="srv-head">
-            <div class="srv-icon" style="padding:0;overflow:hidden">${h.iconUrl || h.icon_url ? `<img src="${esc(h.iconUrl || h.icon_url)}" alt="" style="width:100%;height:100%;object-fit:cover" onerror="this.remove()"/>` : I('puzzle')}</div>
-            <div class="srv-title grow"><h4>${esc(h.title || h.name || h.slug)}</h4>
-              <div class="srv-meta"><span>${esc(h.author || h.team || 'community')}</span><span class="dim">·</span><span>↓ ${esc(fmt.num(h.downloads || 0))}</span></div></div>
+            <div class="srv-icon" style="padding:0;overflow:hidden">${h.iconUrl ? `<img src="${esc(h.iconUrl)}" alt="" style="width:100%;height:100%;object-fit:cover" onerror="this.remove()"/>` : I('puzzle')}</div>
+            <div class="srv-title grow"><h4>${esc(h.title || h.slug)}</h4>
+              <div class="srv-meta"><span>${esc(h.author || 'community')}</span><span class="dim">·</span><span>↓ ${esc(fmt.num(h.downloads || 0))}</span></div></div>
           </div>
           <div class="srv-body">
             <p class="dim small" style="min-height:38px">${esc(String(h.description || '').slice(0, 110))}${String(h.description || '').length > 110 ? '…' : ''}</p>
-            <div class="row wrap gap-4">${(h.categories || []).slice(0, 3).map((c) => `<span class="chip chip-plain tiny">${esc(c)}</span>`).join('')}</div>
+            <div class="row wrap gap-4">${(h.displayCategories && h.displayCategories.length ? h.displayCategories : h.categories || []).slice(0, 3).map((c) => `<span class="chip chip-plain tiny">${esc(c)}</span>`).join('')}</div>
           </div>
-          <div class="srv-foot">${installButton({ id: h.project_id || h.id || h.slug, kind: 'mod', title: h.title || h.slug })}</div>
+          <div class="srv-foot">${installButton({ id: h.slug || h.id, kind: 'mod', title: h.title || h.slug })}</div>
         </article>`).join('')}</div>`
-        : emptyState('puzzle', 'Nothing found', `No projects matched “${esc(q)}”.`);
+        : emptyState('puzzle', 'Nothing found', `No projects matched “${esc(q)}”. The Modrinth API may be unreachable from this host.`);
       bindInstall('mod');
     }
 
     async function paintModpacks(body) {
-      const r = await API.get('/api/marketplace/search?query=' + encodeURIComponent(state.query || 'modpack') + '&limit=24');
-      const hits = r.hits || r.results || [];
+      const r = await API.get('/api/marketplace/search?query=' + encodeURIComponent(state.query || 'adventure') + '&limit=24&projectType=modpack');
+      const hits = r.projects || r.hits || [];
       body.innerHTML = hits.length ? `<div class="srv-grid">${hits.map((h) => `
         <article class="srv-card" style="cursor:default">
           <div class="srv-glow"></div>
           <div class="srv-head">
-            <div class="srv-icon">${I('package')}</div>
+            <div class="srv-icon" style="padding:0;overflow:hidden">${h.iconUrl ? `<img src="${esc(h.iconUrl)}" alt="" style="width:100%;height:100%;object-fit:cover" onerror="this.remove()"/>` : I('package')}</div>
             <div class="srv-title grow"><h4>${esc(h.title || h.slug)}</h4>
             <div class="srv-meta"><span>${esc(h.author || 'community')}</span><span class="dim">·</span><span>↓ ${esc(fmt.num(h.downloads || 0))}</span></div></div>
           </div>
           <div class="srv-body"><p class="dim small">${esc(String(h.description || '').slice(0, 120))}</p></div>
-          <div class="srv-foot">${installButton({ id: h.project_id || h.id, kind: 'mod', title: h.title })}</div>
+          <div class="srv-foot">${installButton({ id: h.slug || h.id, kind: 'mod', title: h.title })}</div>
         </article>`).join('')}</div>`
         : emptyState('package', 'No modpacks found', 'Try another search keyword.');
       bindInstall('mod');

@@ -103,7 +103,7 @@ class CurseForgeService {
           summary: item.summary,
           downloadCount: item.downloadCount,
           thumbsUpCount: item.thumbsUpCount,
-          logoUrl: item.logo?.thumbnailUrl || item.logo?.url || '/assets/favicon.svg',
+          logoUrl: item.logo?.thumbnailUrl || item.logo?.url || '/assets/darkonyx/favicon.svg',
           authors: (item.authors || []).map(a => a.name).join(', '),
           websiteUrl: item.links?.websiteUrl || `https://www.curseforge.com/minecraft/worlds/${item.slug}`,
           categories: (item.categories || []).map(c => ({ id: c.id, name: c.name, slug: c.slug })),

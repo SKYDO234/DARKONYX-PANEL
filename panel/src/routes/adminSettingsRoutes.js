@@ -170,8 +170,8 @@ router.post('/reset', authenticate, requireAdmin, async (req, res) => {
       theme_mode: 'dark',
       panel_name: config.DEFAULT_PANEL_NAME || 'DARKONYX PANEL',
       favicon_name: config.DEFAULT_PANEL_NAME || 'DARKONYX PANEL',
-      panel_logo: dt.logo || '/assets/logo.png',
-      favicon_logo: dt.favicon || '/images/meta/Logo.png'
+      panel_logo: dt.logo || '/assets/darkonyx/wordmark.svg',
+      favicon_logo: dt.favicon || '/assets/darkonyx/favicon.svg'
     };
 
     for (const [key, value] of Object.entries(defaults)) {

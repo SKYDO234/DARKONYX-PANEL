@@ -71,7 +71,7 @@ class MarketplaceService {
         projectType: hit.project_type,
         downloads: hit.downloads,
         follows: hit.follows,
-        iconUrl: hit.icon_url || '/assets/favicon.svg',
+        iconUrl: hit.icon_url || '/assets/darkonyx/favicon.svg',
         author: hit.author,
         latestVersion: hit.latest_version,
         versions: hit.versions || [],

@@ -269,6 +269,9 @@
         { id: 'admin-network', label: 'Network', icon: 'globe', hash: '/admin/network' },
         { id: 'admin-databases', label: 'Databases', icon: 'database', hash: '/admin/databases' },
         { id: 'admin-backups', label: 'Backups', icon: 'archive', hash: '/admin/backups' },
+        { id: 'admin-addons', label: 'Addons', icon: 'puzzle', hash: '/admin/addons' },
+        { id: 'admin-social', label: 'Social login', icon: 'discord', hash: '/admin/social' },
+        { id: 'admin-updates', label: 'Panel updates', icon: 'download', hash: '/admin/updates' },
         { id: 'admin-settings', label: 'Settings', icon: 'sliders', hash: '/admin/settings' }
       ]
     }
@@ -502,6 +505,8 @@
         const host = $('#view-inner');
         host.className = 'view-inner';
         host.innerHTML = '';
+        document.getElementById('view').setAttribute('data-view', hash);
+        document.getElementById('view').scrollTop = 0;
         Router.current = hash;
         return viewFn(host);
       };
@@ -524,7 +529,7 @@
         if (root === 'server') {
           const id = parts[1];
           const tab = parts[2] || 'console';
-          const allowed = ['console', 'files', 'settings', 'backups', 'schedules', 'players', 'worlds', 'users', 'network', 'addons'];
+          const allowed = ['console', 'files', 'settings', 'backups', 'schedules', 'players', 'worlds', 'users', 'network', 'addons', 'databases'];
           if (!id || !allowed.includes(tab)) { Router.go(`/server/${id || ''}/console`); return; }
           return mount((host) => Views.server.shell(host, id, tab), 'portal-servers', [{ label: 'Servers', hash: '/portal/servers' }, { label: `#${id}` }]);
         }
@@ -540,7 +545,10 @@
             network: [Views.admin.network, 'admin-network', [{ label: 'Admin' }, { label: 'Network' }]],
             databases: [Views.admin.databases, 'admin-databases', [{ label: 'Admin' }, { label: 'Databases' }]],
             backups: [Views.admin.backups, 'admin-backups', [{ label: 'Admin' }, { label: 'Backups' }]],
-            settings: [Views.admin.settings, 'admin-settings', [{ label: 'Admin' }, { label: 'Settings' }]]
+            settings: [Views.admin.settings, 'admin-settings', [{ label: 'Admin' }, { label: 'Settings' }]],
+            addons: [Views.admin.addons, 'admin-addons', [{ label: 'Admin' }, { label: 'Addons' }]],
+            social: [Views.admin.social, 'admin-social', [{ label: 'Admin' }, { label: 'Social login' }]],
+            updates: [Views.admin.updates, 'admin-updates', [{ label: 'Admin' }, { label: 'Panel updates' }]]
           };
           if (!map[sub]) { Router.go('/admin/overview'); return; }
           return mount(...map[sub]);

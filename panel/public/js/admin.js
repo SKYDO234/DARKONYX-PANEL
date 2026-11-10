@@ -486,11 +486,8 @@
           </div>
         </article>`;
       }).join('')}</div>` : emptyState('network', 'No nodes', 'Add a node to start deploying servers.');
-      document.querySelectorAll('[data-nodes-detail]').forEach((b) => b.onclick = async () => {
-        try {
-          const s = await API.get(`/api/admin/nodes/${b.dataset.nodesDetail}/stats`);
-          modal({ title: 'Node stats', body: `<pre class="mono tiny" style="white-space:pre-wrap;color:var(--text-2)">${esc(JSON.stringify(s, null, 2))}</pre>` });
-        } catch (e) { toast(e.message, 'err'); }
+      document.querySelectorAll('[data-nodes-detail]').forEach((b) => b.onclick = () => {
+        if (window.DKX.Views.admin.nodeDetail) window.DKX.Views.admin.nodeDetail(b.dataset.nodesDetail);
       });
     } catch (e) { document.getElementById('nd-body').innerHTML = emptyState('alert', 'Could not load nodes', e.message); }
   }

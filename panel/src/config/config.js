@@ -41,8 +41,8 @@ module.exports = {
     blur: 16,        // 0 - 40px
     wallpaper: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?auto=format&fit=crop&w=3840&q=90', // Full pitch black minimalist OLED
     wallpaperCategory: 'black-dark',
-    logo: '/assets/logo.png',
-    favicon: '/images/meta/Logo.png',
+    logo: '/assets/darkonyx/wordmark.svg',
+    favicon: '/assets/darkonyx/favicon.svg',
     themeMode: 'dark',
     musicUrl: '',
     musicTitle: 'Default Chill Synth',

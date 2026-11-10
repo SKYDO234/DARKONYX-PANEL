@@ -55,7 +55,7 @@ class SpigotService {
 
       const rawItems = res.data || [];
       let items = rawItems.map(item => {
-        let iconUrl = '/assets/favicon.svg';
+        let iconUrl = '/assets/darkonyx/favicon.svg';
         if (item.icon?.url) {
           iconUrl = item.icon.url.startsWith('http') ? item.icon.url : `https://spigotmc.org/${item.icon.url}`;
         } else if (item.icon?.data) {
@@ -126,7 +126,7 @@ class SpigotService {
       const item = res.data;
       if (!item) throw new Error('Resource not found.');
 
-      let iconUrl = '/assets/favicon.svg';
+      let iconUrl = '/assets/darkonyx/favicon.svg';
       if (item.icon?.url) {
         iconUrl = item.icon.url.startsWith('http') ? item.icon.url : `https://spigotmc.org/${item.icon.url}`;
       } else if (item.icon?.data) {

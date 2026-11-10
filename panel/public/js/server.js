@@ -14,6 +14,7 @@
     { id: 'backups', label: 'Backups', icon: 'archive' },
     { id: 'schedules', label: 'Schedules', icon: 'clock' },
     { id: 'network', label: 'Network', icon: 'globe' },
+    { id: 'databases', label: 'Databases', icon: 'database' },
     { id: 'users', label: 'Sub-users', icon: 'shield' },
     { id: 'addons', label: 'Addons', icon: 'puzzle' },
     { id: 'settings', label: 'Settings', icon: 'sliders' }
@@ -114,24 +115,38 @@
       <div id="srv-tab-body" class="mt-14"></div>`;
 
     host.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => { location.hash = `#/server/${id}/${b.dataset.tab}`; });
-    host.querySelectorAll('[data-pw]').forEach((b) => b.onclick = async () => {
-      const action = b.dataset.pw;
-      if (action === 'kill' && !(await new Promise((res) => window.el.confirmDialog({
-        title: 'Force kill server?', message: 'This kills the process without saving world data. Use only if the server is unresponsive.',
-        confirmLabel: 'Force kill', onConfirm: async () => { res(true); }
-      })).el)) return;
+    const power = async (action) => {
       try {
-        const r = await API.post(`/api/servers/${id}/power`, { action });
-        toast(`${action[0].toUpperCase() + action.slice(1)} signal sent`, 'ok', 'Power');
-        updateStatus(action === 'start' ? 'starting' : action === 'stop' || action === 'kill' ? 'stopping' : 'starting');
+        await API.post(`/api/servers/${id}/power`, { action });
+        toast(`${action[0].toUpperCase() + action.slice(1)} signal sent`, 'ok', 'Power action');
+        updateStatus(action === 'stop' || action === 'kill' ? 'stopping' : 'starting');
       } catch (e) { toast(e.message, 'err'); }
+    };
+    host.querySelectorAll('[data-pw]').forEach((b) => b.onclick = () => {
+      const action = b.dataset.pw;
+      if (action === 'kill') {
+        return window.el.confirmDialog({
+          title: 'Force kill server?',
+          message: 'The process is terminated immediately — unsaved world data can be lost. Use only when the server is unresponsive.',
+          confirmLabel: 'Force kill',
+          onConfirm: () => power('kill')
+        });
+      }
+      if (action === 'stop') {
+        return window.el.confirmDialog({
+          title: 'Stop the server?', message: 'A graceful shutdown lets Minecraft save the world before exiting.',
+          confirmLabel: 'Stop server', danger: false, onConfirm: () => power('stop')
+        });
+      }
+      power(action);
     });
 
     const body = document.getElementById('srv-tab-body');
     const renderers = {
       console: renderConsole, files: renderFiles, players: renderPlayers, worlds: renderWorlds,
       backups: renderBackups, schedules: renderSchedules, network: renderNetwork,
-      users: renderSubusers, addons: renderAddons, settings: renderSettings
+      users: renderSubusers, addons: renderAddons, settings: renderSettings,
+      databases: (h, srv) => (window.DKX.Views.server.databases ? window.DKX.Views.server.databases(h, srv.id) : renderConsole(h, srv))
     };
     (renderers[tab] || renderConsole)(body, s, perms);
   }
@@ -355,7 +370,7 @@
       catch (e) { toast(e.message, 'err'); return; }
       window.el.modal({
         title: filePath.split('/').pop(), subtitle: filePath, size: 'wide',
-        body: `<textarea class="code-editor" id="fm-editor" spellcheck="false">${esc(content)}</textarea>`,
+        body: `<textarea class="code-editor" id="fm-editor" spellcheck="false" style="min-height:min(62vh,560px)">${esc(content)}</textarea>`,
         footer: `<button class="btn" data-cancel>Close</button><button class="btn btn-primary" data-save>${I('save')} Save file</button>`,
         onMount(wrap, close) {
           wrap.querySelector('[data-cancel]').onclick = close;

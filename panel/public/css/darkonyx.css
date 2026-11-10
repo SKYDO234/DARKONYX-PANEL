@@ -908,6 +908,19 @@ html[data-theme='light'] .menu { background: #fff; }
   .srv-grid { grid-template-columns: 1fr; }
 }
 
+/* ==========================================================================
+   Page-specific polish
+   ========================================================================== */
+#view[data-view^='server/'] > .view-inner > .card:first-child { overflow: visible; }
+#view[data-view^='server/'] .tabs { position: sticky; top: -1px; z-index: 12; background: rgba(10, 10, 18, .86); backdrop-filter: blur(16px); }
+#view[data-view='marketplace'] .srv-grid { grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); }
+#view[data-view='admin/overview'] .stat .chart-box { margin-top: 10px; }
+.modal .code-editor { border-radius: 12px; border: 1px solid var(--line); }
+.scrim { overscroll-behavior: contain; }
+
+/* sticky table headers inside long admin tables */
+.table-wrap table.data thead th { position: sticky; top: 0; z-index: 2; backdrop-filter: blur(8px); }
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
