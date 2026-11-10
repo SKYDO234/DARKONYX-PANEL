@@ -9,10 +9,10 @@ async function seedDatabase() {
   // Default Settings
   const defaultSettings = [
     { key: 'panel_name', value: 'DARKONYX', description: 'Application display name' },
-    { key: 'panel_logo', value: '', description: 'Panel Logo image URL or uploaded file path' },
+    { key: 'panel_logo', value: '/assets/darkonyx/wordmark.svg', description: 'Panel Logo image URL or uploaded file path' },
     { key: 'favicon_name', value: 'DARKONYX', description: 'Favicon tab title' },
-    { key: 'favicon_logo', value: '', description: 'Favicon icon URL or uploaded path' },
-    { key: 'panel_bg', value: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?auto=format&fit=crop&w=3840&q=90', description: 'Panel Background Image or Video URL' },
+    { key: 'favicon_logo', value: '/assets/darkonyx/favicon.svg', description: 'Favicon icon URL or uploaded path' },
+    { key: 'panel_bg', value: '/assets/darkonyx/backdrop.svg', description: 'Panel Background Image or Video URL' },
     { key: 'panel_bg_type', value: 'image', description: 'image or video' },
     { key: 'panel_bg_category', value: 'black-dark', description: 'Selected 4k wallpapers preset category' },
     { key: 'theme_mode', value: 'dark', description: 'Default UI theme mode (dark or light)' },
