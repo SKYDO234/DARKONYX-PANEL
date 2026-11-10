@@ -288,8 +288,7 @@ async function test(group, label, method, path, body, opts = {}) {
 
   /* ---------------- WEBSOCKET CONSOLE ---------------- */
   // The WS check needs a live server row: use the first one that exists.
-  const wsServers = await call('GET', '/api/servers');
-  const wsServerId = (wsServers.data && wsServers.data.servers && wsServers.data.servers[0] && wsServers.data.servers[0].id) || null;
+  const wsServerId = auditServerId;
   const wsResult = await new Promise((resolve) => {
     if (!wsServerId) return resolve({ ok: true, note: 'skipped (no servers)' });
     const WebSocket = require('ws');
