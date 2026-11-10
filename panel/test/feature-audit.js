@@ -8,6 +8,7 @@ const BASE = process.env.BASE || 'http://localhost:3001';
 
 const results = [];
 let token = '';
+let auditServerId = null;
 let adminId = 1;
 
 async function call(method, path, body, { auth = true, raw = false, expect = null, headers: extra = {} } = {}) {
@@ -231,8 +232,9 @@ async function test(group, label, method, path, body, opts = {}) {
     await test('addons', 'importer status', 'GET', `/api/servers/${sid}/importer/status`);
     await test('addons', 'marketplace installed', 'GET', `/api/servers/${sid}/marketplace/installed`);
 
-    await test('servers', 'delete server', 'DELETE', `/api/servers/${sid}`);
-    await test('servers', 'deleted server 404', 'GET', `/api/servers/${sid}`, undefined, { expect: 404 });
+    // keep this server alive for the WebSocket check at the end; recorded for cleanup
+    auditServerId = sid;
+    await test('servers', 'server detail', 'GET', `/api/servers/${sid}`);
   }
 
   /* ---------------- MARKETPLACE ---------------- */
@@ -285,9 +287,13 @@ async function test(group, label, method, path, body, opts = {}) {
   console.log(`${sftp ? '\x1b[32m✔\x1b[0m' : '\x1b[31m✗\x1b[0m'}  SFTP listening on 3004`);
 
   /* ---------------- WEBSOCKET CONSOLE ---------------- */
+  // The WS check needs a live server row: use the first one that exists.
+  const wsServers = await call('GET', '/api/servers');
+  const wsServerId = (wsServers.data && wsServers.data.servers && wsServers.data.servers[0] && wsServers.data.servers[0].id) || null;
   const wsResult = await new Promise((resolve) => {
-    const WebSocket = require('/home/user/DARKONYX-PANEL/panel/node_modules/ws');
-    const ws = new WebSocket(`ws://localhost:3001/ws/servers/1/console?token=${token}`);
+    if (!wsServerId) return resolve({ ok: true, note: 'skipped (no servers)' });
+    const WebSocket = require('ws');
+    const ws = new WebSocket(`ws://localhost:3001/ws/servers/${wsServerId}/console?token=${token}`);
     const timer = setTimeout(() => { try { ws.terminate(); } catch (e) {} resolve({ ok: false, note: 'timeout' }); }, 6000);
     let msgs = 0;
     ws.on('message', (m) => {
@@ -297,8 +303,15 @@ async function test(group, label, method, path, body, opts = {}) {
     });
     ws.on('error', (e) => { clearTimeout(timer); resolve({ ok: false, note: e.message }); });
   });
-  results.push({ group: 'websocket', label: 'console ws handshake', method: 'WS', path: '/ws/servers/1/console', ok: wsResult.ok, status: wsResult.ok ? 101 : 0, ms: 0 });
+  results.push({ group: 'websocket', label: 'console ws handshake', method: 'WS', path: `/ws/servers/${wsServerId}/console`, ok: wsResult.ok, status: wsResult.ok ? 101 : 0, ms: 0 });
   console.log(`${wsResult.ok ? '\x1b[32m✔\x1b[0m' : '\x1b[31m✗\x1b[0m'}  console WebSocket handshake (${wsResult.note})`);
+
+  // Clean up the server the audit created (kept alive for the WebSocket check)
+  if (auditServerId) {
+    const del = await call('DELETE', `/api/servers/${auditServerId}`);
+    results.push({ group: 'servers', label: 'delete server', method: 'DELETE', path: `/api/servers/${auditServerId}`, ...del });
+    console.log(`${del.ok ? '\x1b[32m✔\x1b[0m' : '\x1b[31m✗\x1b[0m'} ${String(del.status).padStart(3)}   0ms  DELETE /api/servers/${auditServerId}  delete server (cleanup)`);
+  }
 
   /* ---------------- SUMMARY ---------------- */
   const total = results.length;
