@@ -1,0 +1,14 @@
+node_modules/
+panel/node_modules/
+panel/.env
+panel/data/*.sqlite3
+panel/data/*.sqlite3-*
+panel/data/sftp_host_key
+panel/storage/servers/*
+!panel/storage/servers/.gitkeep
+panel/storage/backups/*
+!panel/storage/backups/.gitkeep
+panel/public/uploads/*
+!panel/public/uploads/.gitkeep
+*.log
+.DS_Store

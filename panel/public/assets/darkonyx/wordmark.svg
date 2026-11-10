@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 48" width="220" height="48">
+  <rect width="220" height="48" fill="none"/>
+  <path d="M10 10 24 17.6v14.8L10 40 4 17.6 10 10Z" fill="none" stroke="#c4b5fd" stroke-width="1.2"/>
+  <path d="M10 14.4 19.6 19.8v9.6L10 34.8l-9.6-5.4v-9.6L10 14.4Z" fill="#8b5cf6" fill-opacity=".9"/>
+  <text x="34" y="22" font-family="Space Grotesk, Inter, sans-serif" font-size="14" font-weight="700" letter-spacing="4" fill="#f4f4f8">DARKONYX</text>
+  <text x="34" y="36" font-family="Inter, sans-serif" font-size="7" font-weight="600" letter-spacing="3.4" fill="#8b5cf6">SERVER CONTROL</text>
+</svg>
