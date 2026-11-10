@@ -1,5 +1,13 @@
 # 🖤 DARKONYX PANEL
 
+<p align="center">
+  <img src="assets/zk-studio.png" alt="ZK STUDIO" width="320" />
+</p>
+
+<p align="center">
+  <b>Made by ZK STUDIO</b>
+</p>
+
 **Obsidian-grade Minecraft server control.** A self-hosted hosting panel for Minecraft (Paper, Purpur, Fabric, Forge, NeoForge, Vanilla, Velocity, BungeeCord…), Node.js and Python servers — with power controls, a live console, file manager, backups, schedules, players, worlds, plugins, sub-users and full node administration.
 
 > The complete panel **engine** (routes, services, runner, daemon API, SFTP, scheduler) is carried over from the [Mpanel](https://github.com/nobita329/Mpanel) backend. The **entire interface is original**: a new design system, new views, new interaction model, new navigation, and a zero-config database layer so it runs anywhere.
@@ -164,6 +172,16 @@ so the suite is usable on a box with no outbound network.
 * Fresh installs seed one node with 19 free port allocations and an `admin / admin` account.
 * A failed GitHub release check (offline hosts) is cached and never blocks the dashboard.
 * `public/data` (tool data) and `public/addons` (egg icons) ship with the panel; the old frontend was intentionally not copied.
+
+---
+
+<p align="center">
+  <img src="assets/zk-studio.png" alt="ZK STUDIO" width="160" />
+</p>
+
+<p align="center">
+  <b>Made by ZK STUDIO</b>
+</p>
 
 ---
 
