@@ -472,7 +472,17 @@ router.post('/:id/command', authenticate, requireServerAccess('console.write'), 
       return res.status(400).json({ success: false, error: 'Command string is required.' });
     }
 
-    runnerService.sendCommand(serverId, command);
+    const server = await query.get('SELECT status FROM servers WHERE id = ?', [serverId]);
+    if (server && server.is_suspended) {
+      return res.status(403).json({ success: false, error: 'Server is suspended — commands are disabled.' });
+    }
+
+    try {
+      runnerService.sendCommand(serverId, command);
+    } catch (cmdErr) {
+      return res.status(400).json({ success: false, error: cmdErr.message });
+    }
+
     logActivity(req.user.id, serverId, 'SERVER_COMMAND', command, req);
 
     res.json({ success: true, message: 'Command sent.' });

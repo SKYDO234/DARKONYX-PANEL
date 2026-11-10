@@ -181,7 +181,7 @@ router.delete('/admin/sociallogin/providers/:short_name', authenticate, requireA
 router.get('/auth/social/providers', async (req, res) => {
   try {
     const active = await query.all(
-      'SELECT id, name, short_name FROM social_providers WHERE enabled = 1 AND client_id IS NOT NULL AND client_id != "" AND client_secret IS NOT NULL AND client_secret != ""'
+      'SELECT id, name, short_name FROM social_providers WHERE enabled = 1 AND client_id IS NOT NULL AND client_id != \'\' AND client_secret IS NOT NULL AND client_secret != \'\''
     );
 
     const formatted = active.map(p => {

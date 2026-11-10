@@ -85,14 +85,21 @@ function setupWebSocket(wss) {
         return ws.close(4004, 'Server Not Found');
       }
 
-      // Check permission
+      // Check permission (admin / owner get everything, subusers get their grants)
+      let wsPermissions = ['*'];
       if (user.role !== 'admin' && server.user_id !== user.id) {
         const subuser = await query.get('SELECT * FROM subusers WHERE server_id = ? AND user_id = ?', [serverId, user.id]);
         if (!subuser) {
           ws.send(JSON.stringify({ type: 'error', message: 'Access denied.' }));
           return ws.close(4003, 'Forbidden');
         }
+        try {
+          wsPermissions = JSON.parse(subuser.permissions || '[]');
+        } catch (e) {
+          wsPermissions = [];
+        }
       }
+      const can = (perm) => wsPermissions.includes('*') || wsPermissions.includes(perm);
 
       // Attach client to runner service
       runnerService.subscribeSocket(serverId, ws);
@@ -102,9 +109,15 @@ function setupWebSocket(wss) {
           const msg = JSON.parse(data.toString());
 
           if (msg.action === 'command' && msg.command) {
+            if (!can('console.command') && !can('console.write')) {
+              return ws.send(JSON.stringify({ type: 'error', message: "Permission denied: Missing 'console.command' permission." }));
+            }
             runnerService.sendCommand(serverId, msg.command);
             logActivity(user.id, serverId, 'SERVER_COMMAND', msg.command);
           } else if (msg.action === 'power') {
+            if (!can('power.control')) {
+              return ws.send(JSON.stringify({ type: 'error', message: "Permission denied: Missing 'power.control' permission." }));
+            }
             if (msg.signal === 'start') {
               await runnerService.startServer(serverId);
               logActivity(user.id, serverId, 'SERVER_START');

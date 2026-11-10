@@ -32,7 +32,8 @@ router.get('/', authenticate, requireServerAccess('subusers.read'), async (req, 
 router.post('/', authenticate, requireServerAccess('subusers.create'), async (req, res) => {
   try {
     const serverId = req.params.serverId;
-    const { userIdentifier, permissions } = req.body; // email or username
+    const userIdentifier = (req.body.userIdentifier || req.body.identifier || req.body.username || req.body.email || '').trim();
+    const { permissions } = req.body; // email or username
 
     if (!userIdentifier) {
       return res.status(400).json({ success: false, error: 'User email or username is required.' });

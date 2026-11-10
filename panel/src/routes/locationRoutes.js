@@ -52,9 +52,19 @@ router.put('/:id', authenticate, requireAdmin, async (req, res) => {
     const locationId = req.params.id;
     const { short_code, name, description } = req.body;
 
+    const current = await query.get('SELECT * FROM locations WHERE id = ?', [locationId]);
+    if (!current) {
+      return res.status(404).json({ success: false, error: 'Location not found.' });
+    }
+
     await query.run(
       'UPDATE locations SET short_code = ?, name = ?, description = ? WHERE id = ?',
-      [short_code, name, description || '', locationId]
+      [
+        short_code !== undefined && short_code !== '' ? short_code : current.short_code,
+        name !== undefined && name !== '' ? name : current.name,
+        description !== undefined ? description : current.description,
+        locationId
+      ]
     );
 
     logActivity(req.user.id, null, 'LOCATION_UPDATE', `Updated location ID: ${locationId}`, req);

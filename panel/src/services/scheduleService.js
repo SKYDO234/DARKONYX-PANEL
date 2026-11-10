@@ -44,7 +44,7 @@ class ScheduleService {
           }
         } else if (schedule.action_type === 'command') {
           if (schedule.payload && runnerService.isServerRunning(schedule.server_id)) {
-            runnerService.sendCommand(schedule.server_id, schedule.payload);
+            await runnerService.sendCommand(schedule.server_id, schedule.payload).catch(() => {});
           }
         } else if (schedule.action_type === 'backup') {
           await backupService.createBackup(schedule.server_id, `Scheduled Backup (${schedule.name})`);

@@ -304,7 +304,7 @@ class AddonService {
     if (!domain || !domain.trim()) throw new Error('Domain name is required.');
     const d = domain.trim().toLowerCase();
     await query.run(
-      'INSERT INTO subdomains_connected_domains (domain, zone_id, status) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE zone_id = VALUES(zone_id), status = "active"',
+      'INSERT INTO subdomains_connected_domains (domain, zone_id, status) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE zone_id = VALUES(zone_id), status = \'active\'',
       [d, zoneId || null, 'active']
     );
     return { success: true, domain: d };

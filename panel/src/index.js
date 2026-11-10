@@ -12,6 +12,7 @@ const scheduleService = require('./services/scheduleService');
 const autoSuspensionService = require('./services/autoSuspensionService');
 const sftpServer = require('./sftp/sftpServer');
 const { createDaemonServer } = require('./api/daemonServer');
+const { hardenRouter } = require('./middleware/safeAsync');
 
 // Routes
 const authRoutes = require('./routes/authRoutes');
@@ -43,6 +44,27 @@ const adminAddonsRoutes = require('./routes/adminAddonsRoutes');
 const serverAddonRoutes = require('./routes/serverAddonRoutes');
 
 
+/**
+ * Process safety nets.
+ * A single bad request, a stray rejected promise or a flaky child process must
+ * never be able to take the whole panel down — log it and keep serving.
+ */
+let crashCount = 0;
+process.on('uncaughtException', (err) => {
+  crashCount++;
+  console.error(`⚠️  [DARKONYX] Uncaught exception #${crashCount} (panel kept alive):`, err && err.message ? err.message : err);
+  if (err && err.stack) console.error(String(err.stack).split('\n').slice(0, 4).join('\n'));
+  if (crashCount > 500) {
+    console.error('❌ Too many exceptions — exiting so the process manager can restart cleanly.');
+    process.exit(1);
+  }
+});
+process.on('unhandledRejection', (reason) => {
+  crashCount++;
+  console.error(`⚠️  [DARKONYX] Unhandled rejection #${crashCount} (panel kept alive):`, reason && reason.message ? reason.message : reason);
+  if (crashCount > 500) process.exit(1);
+});
+
 async function bootstrap() {
   console.log('🚀 Initializing DARKONYX PANEL Core Engine...');
 
@@ -73,16 +95,15 @@ async function bootstrap() {
   app.use('/data', express.static(path.join(__dirname, '../public/data')));
   app.use('/addons', express.static(path.join(__dirname, '../public/addons')));
 
-  // Client-side application routes resolve to the DARKONYX SPA shell
-  const SPA_ROUTES = ['/login', '/portal', '/server', '/admin', '/account', '/marketplace'];
-  app.get(SPA_ROUTES, (req, res, next) => {
-    if (/\.(js|css|svg|png|jpg|json|ico|woff2?)$/i.test(req.path)) return next();
-    res.sendFile(path.join(__dirname, '../public/index.html'));
-  });
-  app.get(['/portal/*', '/server/*', '/admin/*'], (req, res, next) => {
-    if (req.path.startsWith('/api') || req.path.startsWith('/ws')) return next();
-    res.sendFile(path.join(__dirname, '../public/index.html'));
-  });
+  // Every router gets async-safety wrapping before it is mounted
+  for (const r of [
+    authRoutes, adminUpdateRoutes, adminSettingsRoutes, userRoutes, nodeRoutes,
+    locationRoutes, apiKeyRoutes, autoBackupRoutes, adminAddonsRoutes, adminRoutes,
+    serverAddonRoutes, socialLoginRoutes, serverRoutes, serverFilesRoutes,
+    serverBackupRoutes, serverScheduleRoutes, serverSubuserRoutes, serverPlayerRoutes,
+    serverWorldRoutes, serverImporterRoutes, serverPropertiesRoutes, serverSplitterRoutes,
+    mcjarsRoutes, activityRoutes, marketplaceRoutes, developerProfileRoutes
+  ]) hardenRouter(r);
 
   // REST API Routes
   app.use('/api', require('./routes/compatRoutes'));
@@ -122,11 +143,36 @@ async function bootstrap() {
   app.use('/api/public', developerProfileRoutes);
   app.use('/api/developer', developerProfileRoutes);
 
-  // Fallback to index.html for SPA routing
+  // Unknown API endpoints must answer with JSON 404 (never hang the socket)
+  app.use('/api', (req, res) => {
+    res.status(404).json({ success: false, error: `Unknown API endpoint: ${req.method} ${req.originalUrl}` });
+  });
+
+  // Client-side application routes resolve to the DARKONYX SPA shell
+  const SPA_ROUTES = ['/login', '/portal', '/server', '/admin', '/account', '/marketplace'];
+  app.get(SPA_ROUTES, (req, res, next) => {
+    if (/\.(js|css|svg|png|jpg|json|ico|woff2?)$/i.test(req.path)) return next();
+    res.sendFile(path.join(__dirname, '../public/index.html'));
+  });
+  app.get(['/portal/*', '/server/*', '/admin/*'], (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/ws')) return next();
+    res.sendFile(path.join(__dirname, '../public/index.html'));
+  });
+
+  // Every other GET falls back to the SPA shell
   app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api') && !req.path.startsWith('/ws')) {
-      res.sendFile(path.join(__dirname, '../public/index.html'));
-    }
+    if (req.path.startsWith('/ws')) return res.status(404).end();
+    res.sendFile(path.join(__dirname, '../public/index.html'));
+  });
+
+  // JSON error handler — MUST be the last middleware so it catches every route
+  app.use((err, req, res, next) => {
+    console.error('[DARKONYX] Request failed:', req.method, req.originalUrl, '—', err && err.message);
+    if (res.headersSent) return next(err);
+    res.status(err && err.status ? err.status : 500).json({
+      success: false,
+      error: (err && err.message) || 'Unexpected server error.'
+    });
   });
 
   // WebSocket Server for Console & Live Metrics

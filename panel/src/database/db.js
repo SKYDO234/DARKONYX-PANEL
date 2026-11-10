@@ -89,6 +89,30 @@ async function waitForDatabase(maxRetries = 15, delayMs = 2000) {
   }
 }
 
+/**
+ * Adds a column to an existing table if it isn't there yet.
+ * Works on both MariaDB/MySQL and the embedded SQLite adapter, and is safe to
+ * call on every boot (all errors are swallowed).
+ */
+async function addColumnIfMissing(table, column, definition) {
+  try {
+    if (DB_DRIVER === 'mysql' || DB_DRIVER === 'mariadb') {
+      const rows = await query.all(
+        'SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?',
+        [table, column]
+      );
+      if (rows && rows.length) return false;
+    } else {
+      const cols = await query.all(`PRAGMA table_info(\`${table}\`)`);
+      if (cols && cols.some(c => String(c.name).toLowerCase() === column.toLowerCase())) return false;
+    }
+    await pool.query(`ALTER TABLE \`${table}\` ADD COLUMN \`${column}\` ${definition}`);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 async function initDatabase() {
   // 1. Ensure connectivity
   await waitForDatabase();
@@ -438,6 +462,70 @@ async function initDatabase() {
   try {
     await pool.query('ALTER TABLE users ADD COLUMN last_login_ip VARCHAR(64) DEFAULT NULL');
   } catch (e) {}
+
+  // ------------------------------------------------------------------
+  // Addon Pack tables (subdomain manager, multi startup commands, …)
+  // These addons query tables that were never part of the core schema.
+  // ------------------------------------------------------------------
+  const addonTables = [
+    `CREATE TABLE IF NOT EXISTS subdomains_cloudflare_config (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      email VARCHAR(191),
+      api_key LONGTEXT,
+      proxy_records TINYINT(1) DEFAULT 0,
+      use_alias TINYINT(1) DEFAULT 0,
+      use_domain_alias TINYINT(1) DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
+
+    `CREATE TABLE IF NOT EXISTS subdomains_connected_domains (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      domain VARCHAR(191) NOT NULL,
+      zone_id VARCHAR(191),
+      status VARCHAR(32) DEFAULT 'active',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_subdomains_domain (domain)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
+
+    `CREATE TABLE IF NOT EXISTS subdomains_user_subdomains (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      subdomain VARCHAR(191) NOT NULL,
+      domain VARCHAR(191) NOT NULL,
+      full_domain VARCHAR(191) NOT NULL,
+      nest_id INT DEFAULT 1,
+      server_id INT NOT NULL,
+      port_id INT DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_subdomains_full (full_domain),
+      INDEX idx_subdomains_server (server_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
+
+    `CREATE TABLE IF NOT EXISTS subdomains_blocklist (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      subdomain VARCHAR(191) NOT NULL,
+      reason VARCHAR(255),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_subdomains_blocked (subdomain)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
+
+    `CREATE TABLE IF NOT EXISTS multi_startup_commands (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      server_id INT NOT NULL,
+      name VARCHAR(191) NOT NULL,
+      command LONGTEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_multi_startup_server (server_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`
+  ];
+
+  for (const ddl of addonTables) {
+    try { await pool.query(ddl); } catch (e) { }
+  }
+
+  // Addon columns used by the subdomain / record generator addons
+  await addColumnIfMissing('servers', 'subdomain_limit', 'INT DEFAULT 1');
+  await addColumnIfMissing('servers', 'server_cache_ttl', 'INT DEFAULT 0');
+  await addColumnIfMissing('allocations', 'ip_alias', 'VARCHAR(191) DEFAULT NULL');
 
   // Node Firewall Rules table (nftables manager)
   try {

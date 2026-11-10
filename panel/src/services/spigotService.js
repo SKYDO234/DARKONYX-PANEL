@@ -4,7 +4,7 @@ const path = require('path');
 const fileManagerService = require('./fileManagerService');
 
 const SPIGET_API = 'https://api.spiget.org/v2';
-const USER_AGENT = 'DARKONYX PANEL-Game-Server-Panel/2.1.0 (https://github.com/nobita329/DARKONYX PANEL)';
+const USER_AGENT = 'DARKONYX PANEL-Game-Server-Panel/2.1.0 (https://github.com/SKYDO234/DARKONYX-PANEL)';
 
 const client = axios.create({
   baseURL: SPIGET_API,

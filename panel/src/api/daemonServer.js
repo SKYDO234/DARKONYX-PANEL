@@ -12,6 +12,13 @@ function createDaemonServer() {
   app.use(cors());
   app.use(express.json());
 
+  // daemon routes are async too — wrap every handler so a throw becomes a 500
+  const { wrap } = require('../middleware/safeAsync');
+  for (const method of ['get', 'post', 'put', 'patch', 'delete', 'use']) {
+    const original = app[method].bind(app);
+    app[method] = (...handlers) => original(...handlers.map(wrap));
+  }
+
   // Daemon Health & System Stats
   app.get('/api/system/status', (req, res) => {
     const totalMem = Math.round(os.totalmem() / (1024 * 1024));

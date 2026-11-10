@@ -271,6 +271,13 @@ router.put('/:id', authenticate, requireAdmin, async (req, res) => {
     const nodeId = req.params.id;
     const { name, fqdn, daemon_port, sftp_port, memory_mb, disk_mb, location_id } = req.body;
 
+    const current = await query.get('SELECT * FROM nodes WHERE id = ?', [nodeId]);
+    if (!current) {
+      return res.status(404).json({ success: false, error: 'Node not found.' });
+    }
+
+    const pick = (v, fallback) => (v === undefined || v === null || v === '' ? fallback : v);
+
     await query.run(`
       UPDATE nodes SET
         name = ?,
@@ -281,7 +288,16 @@ router.put('/:id', authenticate, requireAdmin, async (req, res) => {
         disk_mb = ?,
         location_id = ?
       WHERE id = ?
-    `, [name, fqdn, daemon_port, sftp_port, memory_mb, disk_mb, location_id, nodeId]);
+    `, [
+      pick(name, current.name),
+      pick(fqdn, current.fqdn),
+      pick(daemon_port, current.daemon_port),
+      pick(sftp_port, current.sftp_port),
+      pick(memory_mb, current.memory_mb),
+      pick(disk_mb, current.disk_mb),
+      pick(location_id, current.location_id),
+      nodeId
+    ]);
 
     logActivity(req.user.id, null, 'NODE_UPDATE', `Updated node ID: ${nodeId}`, req);
 

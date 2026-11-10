@@ -826,13 +826,13 @@ class PlayerService {
     const isRunning = runnerService.isServerRunning(sId);
 
     const { action, username, reason, level, ip, gamemode, item, amount, target, message, advancement } = actionData;
-    const cleanUser = (username || '').trim();
+    const cleanUser = (username || actionData.playerName || actionData.player || actionData.name || '').trim();
     const cleanIp = (ip || '').trim();
 
     const runCmd = (cmd) => {
       if (isRunning) {
         try {
-          runnerService.sendCommand(sId, cmd);
+          Promise.resolve().then(() => runnerService.sendCommand(sId, cmd)).catch(() => {});
         } catch (e) {
           console.warn(`[PlayerService] Failed to send command "${cmd}":`, e.message);
         }

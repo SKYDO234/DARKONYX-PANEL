@@ -7,8 +7,8 @@ const { logActivity } = require('./activityService');
 
 class UpdateService {
   constructor() {
-    this.repoOwner = 'nobita329';
-    this.repoName = 'DARKONYX PANEL';
+    this.repoOwner = 'SKYDO234';
+    this.repoName = 'DARKONYX-PANEL';
     this.githubApiUrl = `https://api.github.com/repos/${this.repoOwner}/${this.repoName}/releases`;
     this.githubReleasesUrl = `https://github.com/${this.repoOwner}/${this.repoName}/releases`;
     this.rootPath = path.resolve(__dirname, '../../');
@@ -136,7 +136,7 @@ class UpdateService {
           published_at: latestRelease.published_at,
           html_url: latestRelease.html_url,
           body: latestRelease.body || 'No release notes provided for this version.',
-          author: latestRelease.author ? latestRelease.author.login : 'nobita329',
+          author: latestRelease.author ? latestRelease.author.login : 'SKYDO234',
           author_avatar: latestRelease.author ? latestRelease.author.avatar_url : null,
           assets: (latestRelease.assets || []).map(a => ({
             name: a.name,
@@ -166,7 +166,7 @@ class UpdateService {
       if (!this._warned) { console.warn('ℹ️  Update feed unreachable (' + err.message + ') — using local version info.'); this._warned = true; }
       // Return fallback cached or current state
       const fallback = {
-        success: false,
+        success: true,
         warning: 'Could not contact GitHub releases API: ' + err.message,
         current_version: currentVer,
         latest_version: currentVer,

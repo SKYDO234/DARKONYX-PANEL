@@ -45,7 +45,7 @@ router.get('/', authenticate, requireServerAccess('files.read'), async (req, res
 router.post('/activate', authenticate, requireServerAccess('files.write'), async (req, res) => {
   try {
     const serverId = req.server?.id || req.params.serverId;
-    const { worldName } = req.body;
+    const worldName = req.body.worldName || req.body.name;
     if (!worldName) {
       return res.status(400).json({ success: false, error: 'worldName is required.' });
     }
@@ -63,7 +63,9 @@ router.post('/activate', authenticate, requireServerAccess('files.write'), async
 router.post('/create', authenticate, requireServerAccess('files.write'), async (req, res) => {
   try {
     const serverId = req.server?.id || req.params.serverId;
-    const { name, seed, gameMode, difficulty, hardcore, levelType, generateStructures, setActive } = req.body;
+    const { seed, gameMode, difficulty, hardcore, levelType, generateStructures, setActive } = req.body;
+    // Accept both spellings used across clients: name / worldName
+    const name = req.body.name || req.body.worldName;
 
     if (!name) {
       return res.status(400).json({ success: false, error: 'World name is required.' });
@@ -92,7 +94,9 @@ router.post('/create', authenticate, requireServerAccess('files.write'), async (
 router.post('/clone', authenticate, requireServerAccess('files.write'), async (req, res) => {
   try {
     const serverId = req.server?.id || req.params.serverId;
-    const { sourceWorld, targetWorld } = req.body;
+    const { sourceWorld } = req.body;
+    // Accept both spellings used across clients: targetWorld / newName
+    const targetWorld = req.body.targetWorld || req.body.newName || req.body.target;
 
     if (!sourceWorld || !targetWorld) {
       return res.status(400).json({ success: false, error: 'sourceWorld and targetWorld are required.' });
@@ -111,7 +115,7 @@ router.post('/clone', authenticate, requireServerAccess('files.write'), async (r
 router.post('/delete', authenticate, requireServerAccess('files.write'), async (req, res) => {
   try {
     const serverId = req.server?.id || req.params.serverId;
-    const { worldName } = req.body;
+    const worldName = req.body.worldName || req.body.name;
 
     if (!worldName) {
       return res.status(400).json({ success: false, error: 'worldName is required.' });
@@ -130,7 +134,7 @@ router.post('/delete', authenticate, requireServerAccess('files.write'), async (
 router.post('/reset', authenticate, requireServerAccess('files.write'), async (req, res) => {
   try {
     const serverId = req.server?.id || req.params.serverId;
-    const { worldName } = req.body;
+    const worldName = req.body.worldName || req.body.name;
 
     if (!worldName) {
       return res.status(400).json({ success: false, error: 'worldName is required.' });
