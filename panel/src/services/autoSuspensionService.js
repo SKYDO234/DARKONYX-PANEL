@@ -8,7 +8,7 @@ class AutoSuspensionService {
   }
 
   init() {
-    console.log('⏰ Initializing SAGA Auto Suspension Service...');
+    console.log('⏰ Initializing Auto Suspension Service...');
     // Run an immediate check on startup
     this.checkExpiredServers().catch(err => {
       console.error('Auto suspension initial check error:', err.message);

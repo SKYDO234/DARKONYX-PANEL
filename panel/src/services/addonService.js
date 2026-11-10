@@ -4,7 +4,7 @@ const fs = require('fs');
 const { query } = require('../database/db');
 const imagesConfig = require('../config/images');
 
-// Default Arix Addon Pack v2.0.2 Definitions & Configurations
+// Default Addon Pack Definitions & Configurations
 const DEFAULT_ADDONS = {
   minecraftModpackInstaller: { enabled: true, eggs: [], nests: [1] },
   minecraftPluginInstaller: { enabled: true, eggs: [], nests: [1] },
@@ -195,7 +195,7 @@ class AddonService {
   // Get all addons settings merged with defaults
   async getAddonSettings() {
     try {
-      const row = await query.get("SELECT `value` FROM settings WHERE `key` = 'arix_addons_config'");
+      const row = await query.get("SELECT `value` FROM settings WHERE `key` = 'addons_config'");
       let custom = {};
       if (row && row.value) {
         try {
@@ -240,7 +240,7 @@ class AddonService {
 
     await query.run(
       'INSERT INTO settings (`key`, `value`, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE `value` = VALUES(`value`), updated_at = CURRENT_TIMESTAMP',
-      ['arix_addons_config', JSON.stringify(current)]
+      ['addons_config', JSON.stringify(current)]
     );
 
     return current[key];
@@ -250,7 +250,7 @@ class AddonService {
   async resetAddons() {
     await query.run(
       'INSERT INTO settings (`key`, `value`, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE `value` = VALUES(`value`), updated_at = CURRENT_TIMESTAMP',
-      ['arix_addons_config', JSON.stringify(DEFAULT_ADDONS)]
+      ['addons_config', JSON.stringify(DEFAULT_ADDONS)]
     );
     return DEFAULT_ADDONS;
   }
@@ -356,7 +356,7 @@ class AddonService {
       const url = `https://api.github.com/repos/pterodactyl/${repoName}/git/trees/main?recursive=1`;
       const res = await axios.get(url, {
         headers: {
-          'User-Agent': 'DARKONYX PANEL-ArixAddonPack/2.0.2',
+          'User-Agent': 'DARKONYX PANEL-AddonPack/2.0.2',
           'Accept': 'application/vnd.github.v3+json'
         },
         timeout: 10000

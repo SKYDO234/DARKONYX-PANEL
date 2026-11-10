@@ -39,7 +39,6 @@ const autoBackupRoutes = require('./routes/autoBackupRoutes');
 const autoBackupService = require('./services/autoBackupService');
 const socialLoginRoutes = require('./routes/socialLoginRoutes');
 const adminUpdateRoutes = require('./routes/adminUpdateRoutes');
-const developerProfileRoutes = require('./routes/developerProfileRoutes');
 const adminAddonsRoutes = require('./routes/adminAddonsRoutes');
 const serverAddonRoutes = require('./routes/serverAddonRoutes');
 
@@ -102,7 +101,7 @@ async function bootstrap() {
     serverAddonRoutes, socialLoginRoutes, serverRoutes, serverFilesRoutes,
     serverBackupRoutes, serverScheduleRoutes, serverSubuserRoutes, serverPlayerRoutes,
     serverWorldRoutes, serverImporterRoutes, serverPropertiesRoutes, serverSplitterRoutes,
-    mcjarsRoutes, activityRoutes, marketplaceRoutes, developerProfileRoutes
+    mcjarsRoutes, activityRoutes, marketplaceRoutes
   ]) hardenRouter(r);
 
   // REST API Routes
@@ -140,8 +139,6 @@ async function bootstrap() {
   app.use('/api/activity', activityRoutes);
   app.use('/api/marketplace', marketplaceRoutes);
   app.use('/api/servers/:serverId/marketplace', marketplaceRoutes);
-  app.use('/api/public', developerProfileRoutes);
-  app.use('/api/developer', developerProfileRoutes);
 
   // Unknown API endpoints must answer with JSON 404 (never hang the socket)
   app.use('/api', (req, res) => {
