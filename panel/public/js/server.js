@@ -1,0 +1,890 @@
+/* ==========================================================================
+   DARKONYX PANEL — server workspace (console, files, settings, backups,
+   schedules, players, worlds, sub-users, network, addons)
+   ========================================================================== */
+(function () {
+  const { esc, fmt, API, Store, toast, modal, confirmDialog, emptyState, meter, statusChip } = window.el;
+  const { serverAddress, typeLabel } = window.DKX.Views.portal;
+
+  const TABS = [
+    { id: 'console', label: 'Console', icon: 'terminal' },
+    { id: 'files', label: 'Files', icon: 'folder' },
+    { id: 'players', label: 'Players', icon: 'users' },
+    { id: 'worlds', label: 'Worlds', icon: 'map' },
+    { id: 'backups', label: 'Backups', icon: 'archive' },
+    { id: 'schedules', label: 'Schedules', icon: 'clock' },
+    { id: 'network', label: 'Network', icon: 'globe' },
+    { id: 'users', label: 'Sub-users', icon: 'shield' },
+    { id: 'addons', label: 'Addons', icon: 'puzzle' },
+    { id: 'settings', label: 'Settings', icon: 'sliders' }
+  ];
+
+  const state = { server: null, id: null, ws: null, consoleTab: 'console', stats: {} };
+
+  /* ------------------------------------------------------------- ws console */
+  function connectConsole(onLine, onStats, onStatus) {
+    disconnectConsole();
+    if (!Store.token || !state.id) return;
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    let ws;
+    try { ws = new WebSocket(`${proto}://${location.host}/ws/servers/${state.id}/console?token=${encodeURIComponent(Store.token)}`); }
+    catch (e) { return; }
+    state.ws = ws;
+    ws.onmessage = (ev) => {
+      let msg; try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      if (msg.type === 'console' || msg.type === 'history') onLine && onLine(msg.data);
+      else if (msg.type === 'stats') { onStats && onStats(msg.stats); }
+      else if (msg.type === 'status') { onStatus && onStatus(msg.status, msg.stats); if (msg.stats) onStats && onStats(msg.stats); }
+      else if (msg.type === 'error') toast(msg.message, 'err');
+    };
+    ws.onclose = () => { if (state.ws === ws) state.ws = null; };
+  }
+  function disconnectConsole() {
+    try { state.ws && state.ws.close(); } catch (e) {}
+    state.ws = null;
+    document.title = (Store.settings && Store.settings.panel_name) || 'DARKONYX PANEL';
+  }
+
+  /* -------------------------------------------------------------- ansi strip */
+  function ansiToHtml(text) {
+    const escText = String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return escText
+      .replace(/\x1b\[0?m/g, '</span>')
+      .replace(/\x1b\[(3[0-7])m/g, (m, c) => `<span class="ansi-${({
+        30: 'gray', 31: 'red', 32: 'green', 33: 'yellow', 34: 'blue', 35: 'magenta', 36: 'cyan', 37: 'gray'
+      })[c] || 'gray'}">`)
+      .replace(/\x1b\[(9[0-7])m/g, (m, c) => `<span class="ansi-${({
+        90: 'gray', 91: 'red', 92: 'green', 93: 'yellow', 94: 'blue', 95: 'magenta', 96: 'cyan', 97: 'gray'
+      })[c] || 'gray'}">`)
+      .replace(/\x1b\[1m/g, '<span class="ansi-bold">')
+      .replace(/\x1b\[[0-9;]*m/g, '');
+  }
+
+  /* ------------------------------------------------------------------ shell */
+  async function shell(host, id, tab) {
+    state.id = id;
+    if (tab !== 'console') disconnectConsole();
+
+    let payload;
+    try { payload = await API.get(`/api/servers/${id}`); }
+    catch (e) { host.innerHTML = `<div class="card card-pad">${emptyState('alert', 'Server unavailable', e.message, `<a class="btn btn-sm" href="#/portal/servers">Back to servers</a>`)}</div>`; return; }
+
+    const s = payload.server;
+    state.server = s;
+    const perms = payload.permissions || [];
+    window.DKX.Shell.setCrumbs([{ label: 'Servers', hash: '/portal/servers' }, { label: s.name }]);
+
+    const suspended = !!s.is_suspended;
+    host.innerHTML = `
+      <div class="card card-pad" style="padding:18px 20px">
+        <div class="row wrap gap-14">
+          <div class="srv-icon" style="width:46px;height:46px;flex-basis:46px">${I('box')}</div>
+          <div class="grow" style="min-width:180px">
+            <div class="row gap-8 wrap"><h2 style="font-size:19px">${esc(s.name)}</h2><span id="srv-status-chip">${statusChip(suspended ? 'suspended' : s.status)}</span></div>
+            <div class="row gap-8 wrap tiny dim mt-8">
+              <span>${esc(typeLabel(s.server_type))}</span><span>·</span>
+              <span class="mono">${esc(serverAddress(s))}</span><span>·</span>
+              <span>${esc(s.node_name || 'local node')}</span>
+              ${s.jar_type ? `<span>·</span><span>${esc(s.jar_type)} ${esc(s.jar_version || '')}</span>` : ''}
+            </div>
+          </div>
+          <div class="row gap-8 wrap">
+            <div class="power-group">
+              <button class="power-btn start" data-pw="start" ${suspended ? 'disabled' : ''} title="Start">${I('play')}</button>
+              <button class="power-btn restart" data-pw="restart" ${suspended ? 'disabled' : ''} title="Restart">${I('restart')}</button>
+              <button class="power-btn stop" data-pw="stop" title="Stop">${I('stop')}</button>
+              <button class="power-btn kill" data-pw="kill" title="Force kill">${I('skull')}</button>
+            </div>
+            <a class="btn btn-sm" href="#/portal/servers">${I('chevronLeft')} All servers</a>
+          </div>
+        </div>
+        ${suspended ? `<div class="banner-strip mt-14" style="border-color:rgba(251,113,133,.35);background:linear-gradient(100deg,rgba(251,113,133,.16),transparent)">${I('alert')}<span>This server is suspended${s.expiration_date ? ` (expired ${esc(fmt.date(s.expiration_date, false))})` : ''}. Power actions are disabled until an administrator renews it.</span></div>` : ''}
+        <div class="row gap-14 mt-14 wrap" id="live-strip">
+          ${[
+        ['CPU', 'cpu', '%'], ['Memory', 'memory', 'MB'], ['Disk', 'disk', 'MB'], ['Uptime', 'uptime', '']
+      ].map(([label, key]) => `<div class="row gap-8" style="flex:1;min-width:150px">
+            <div class="grow"><div class="row tiny dim" style="justify-content:space-between"><span>${label}</span><b class="mono" id="ls-${key}-v">—</b></div>
+            <div class="mt-8" id="ls-${key}-b">${meter(0)}</div></div></div>`).join('')}
+        </div>
+      </div>
+
+      <div class="tabs mt-14" id="srv-tabs">
+        ${TABS.map((t) => `<button class="tab ${t.id === tab ? 'active' : ''}" data-tab="${t.id}">${I(t.icon)} ${t.label}</button>`).join('')}
+      </div>
+      <div id="srv-tab-body" class="mt-14"></div>`;
+
+    host.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => { location.hash = `#/server/${id}/${b.dataset.tab}`; });
+    host.querySelectorAll('[data-pw]').forEach((b) => b.onclick = async () => {
+      const action = b.dataset.pw;
+      if (action === 'kill' && !(await new Promise((res) => window.el.confirmDialog({
+        title: 'Force kill server?', message: 'This kills the process without saving world data. Use only if the server is unresponsive.',
+        confirmLabel: 'Force kill', onConfirm: async () => { res(true); }
+      })).el)) return;
+      try {
+        const r = await API.post(`/api/servers/${id}/power`, { action });
+        toast(`${action[0].toUpperCase() + action.slice(1)} signal sent`, 'ok', 'Power');
+        updateStatus(action === 'start' ? 'starting' : action === 'stop' || action === 'kill' ? 'stopping' : 'starting');
+      } catch (e) { toast(e.message, 'err'); }
+    });
+
+    const body = document.getElementById('srv-tab-body');
+    const renderers = {
+      console: renderConsole, files: renderFiles, players: renderPlayers, worlds: renderWorlds,
+      backups: renderBackups, schedules: renderSchedules, network: renderNetwork,
+      users: renderSubusers, addons: renderAddons, settings: renderSettings
+    };
+    (renderers[tab] || renderConsole)(body, s, perms);
+  }
+
+  function updateStatus(status, stats) {
+    const chip = document.getElementById('srv-status-chip');
+    if (chip) chip.innerHTML = statusChip(status);
+    if (stats) paintStats(stats);
+  }
+
+  function paintStats(stats) {
+    const s = state.server || {};
+    const cpu = Math.min(100, Math.round(stats.cpu || 0));
+    const mem = Math.round(stats.memory || 0);
+    const memLimit = Number(s.memory_mb || 1024);
+    const disk = Math.round(stats.disk || 0);
+    const diskLimit = Number(s.disk_mb || 10240);
+    const set = (k, text, pct) => {
+      const v = document.getElementById(`ls-${k}-v`); if (v) v.textContent = text;
+      const b = document.getElementById(`ls-${k}-b`);
+      if (b) b.innerHTML = meter(pct, pct > 90 ? 'danger' : pct > 70 ? 'warn' : k === 'cpu' ? '' : 'live');
+    };
+    set('cpu', `${cpu}%`, cpu);
+    set('memory', `${fmt.mb(mem)} / ${fmt.mb(memLimit)}`, (mem / memLimit) * 100);
+    set('disk', `${fmt.mb(disk)} / ${fmt.mb(diskLimit)}`, (disk / diskLimit) * 100);
+    const up = document.getElementById('ls-uptime-v');
+    if (up) up.textContent = fmt.uptime(stats.uptime || 0);
+    const b = document.getElementById('ls-uptime-b');
+    if (b) b.innerHTML = `<div class="meter blue"><span style="width:100%"></span></div>`;
+  }
+
+  /* ---------------------------------------------------------------- console */
+  function renderConsole(host, s) {
+    host.innerHTML = `
+      <div class="split">
+        <div class="col gap-14">
+          <div class="console-shell" style="height:min(58vh,540px)">
+            <div class="console-bar">
+              <div class="console-lights"><i></i><i></i><i></i></div>
+              <span class="console-title">${esc(s.name)} — live console</span>
+              <span class="grow"></span>
+              <button class="btn btn-xs" id="con-clear">${I('trash')} Clear</button>
+            </div>
+            <div class="console-out" id="con-out"><span class="ansi-gray">Connecting to daemon stream…</span></div>
+            <form class="console-in" id="con-form">
+              <span class="prompt">›</span>
+              <input id="con-cmd" placeholder="Type a command and press Enter (e.g. say hello, list, op player)" autocomplete="off" spellcheck="false" />
+              <button class="btn btn-sm btn-primary" type="submit">${I('arrowRight')} Send</button>
+            </form>
+          </div>
+        </div>
+        <div class="col gap-14">
+          <div class="card">
+            <div class="card-head"><h3>Connection</h3></div>
+            <div class="card-body">
+              <div class="section-label">Game address</div>
+              ${window.el.copyField(serverAddress(s), 'Copy address')}
+              <div class="section-label mt-14">SFTP</div>
+              ${window.el.copyField(`sftp://${s.sftp_username || 'user.' + s.id}@${s.sftp_host || location.hostname}:${s.sftp_port || 3004}`, 'SFTP')}
+              <div class="kv mt-14"><span class="k">Password</span><span class="v">your panel password</span></div>
+              <div class="kv"><span class="k">Node</span><span class="v">${esc(s.node_name || 'local')}</span></div>
+              <div class="kv"><span class="k">Allocation</span><span class="v mono">${esc(s.ip || '—')}:${esc(s.port || '—')}</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Quick commands</h3></div>
+            <div class="card-body col gap-8">
+              ${[['list', 'Show online players'], ['say Server restarting soon', 'Broadcast message'], ['save-all', 'Force world save'], ['whitelist on', 'Enable whitelist'], ['tps', 'Server tick rate']]
+        .map(([cmd, label]) => `<button class="btn btn-sm" data-quick="${esc(cmd)}" style="justify-content:flex-start">${I('bolt')}<span class="mono" style="font-size:11.5px">${esc(cmd)}</span><span class="grow"></span><span class="dim tiny">${esc(label)}</span></button>`).join('')}
+            </div>
+          </div>
+        </div>
+      </div>`;
+
+    const out = document.getElementById('con-out');
+    out.innerHTML = '';
+    let buffer = '';
+    const write = (chunk) => {
+      buffer += chunk;
+      if (buffer.length > 400000) buffer = buffer.slice(-200000);
+      const nearBottom = out.scrollHeight - out.scrollTop - out.clientHeight < 120;
+      out.innerHTML = ansiToHtml(buffer);
+      if (nearBottom) out.scrollTop = out.scrollHeight;
+    };
+    connectConsole(write, (st) => paintStats(st), (st) => {
+      updateStatus(st);
+      // keep the tab title in sync with the live console so background tabs stay useful
+      if (st) document.title = `${st === 'running' ? '● ' : '○ '}${s.name} — DARKONYX`;
+    });
+
+    document.getElementById('con-clear').onclick = () => { buffer = ''; out.innerHTML = ''; };
+    const form = document.getElementById('con-form');
+    const cmd = document.getElementById('con-cmd');
+    const send = async (text) => {
+      if (!text.trim()) return;
+      if (state.ws && state.ws.readyState === 1) state.ws.send(JSON.stringify({ action: 'command', command: text }));
+      else { try { await API.post(`/api/servers/${s.id}/command`, { command: text }); } catch (e) { toast(e.message, 'err'); } }
+    };
+    form.onsubmit = (e) => { e.preventDefault(); send(cmd.value); cmd.value = ''; };
+    host.querySelectorAll('[data-quick]').forEach((b) => b.onclick = () => send(b.dataset.quick));
+    setTimeout(() => cmd.focus(), 200);
+  }
+
+  /* ------------------------------------------------------------------ files */
+  const fm = { path: '' };
+  async function renderFiles(host, s) {
+    host.innerHTML = `
+      <div class="fm-layout">
+        <div class="card">
+          <div class="card-head"><h3>Folders</h3></div>
+          <div class="card-body col gap-4" id="fm-quick"></div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <div class="grow"><div class="fm-crumbs" id="fm-crumbs"></div></div>
+            <button class="btn btn-sm" id="fm-new-file">${I('file')} New file</button>
+            <button class="btn btn-sm" id="fm-new-dir">${I('folder')} New folder</button>
+            <label class="btn btn-sm btn-primary" style="cursor:pointer">${I('upload')} Upload<input type="file" id="fm-upload" multiple style="display:none" /></label>
+            <button class="btn btn-sm btn-ghost" id="fm-refresh">${I('refresh')}</button>
+          </div>
+          <div class="card-body" style="padding:8px">
+            <div class="fm-list" id="fm-list">${window.el.skeleton(5)}</div>
+          </div>
+        </div>
+      </div>`;
+
+    const listEl = document.getElementById('fm-list');
+    const crumbsEl = document.getElementById('fm-crumbs');
+    const quickEl = document.getElementById('fm-quick');
+
+    const paintQuick = () => {
+      const items = [
+        { p: '', label: 'Server root', icon: 'folder' },
+        { p: 'plugins', label: 'plugins', icon: 'puzzle' },
+        { p: 'mods', label: 'mods', icon: 'package' },
+        { p: 'world', label: 'world', icon: 'map' },
+        { p: 'logs', label: 'logs', icon: 'file' },
+        { p: 'config', label: 'config', icon: 'sliders' }
+      ];
+      quickEl.innerHTML = items.map((i) => `<button class="rail-item" data-path="${esc(i.p)}" style="text-align:left">${I(i.icon)}<span class="rail-label">${esc(i.label)}</span></button>`).join('');
+      quickEl.querySelectorAll('[data-path]').forEach((b) => b.onclick = () => load(b.dataset.path));
+    };
+
+    const paintCrumbs = () => {
+      const parts = fm.path.split('/').filter(Boolean);
+      crumbsEl.innerHTML = `<a data-crumb="">/ root</a>` + parts.map((p, i) => `<span class="dim">/</span><a data-crumb="${esc(parts.slice(0, i + 1).join('/'))}"><b>${esc(p)}</b></a>`).join('');
+      crumbsEl.querySelectorAll('[data-crumb]').forEach((a) => a.onclick = () => load(a.dataset.crumb));
+    };
+
+    async function load(path) {
+      fm.path = path || '';
+      paintCrumbs();
+      listEl.innerHTML = window.el.skeleton(5);
+      try {
+        const r = await API.get(`/api/servers/${s.id}/files?directory=${encodeURIComponent(fm.path)}`);
+        const files = (r.files || []).slice();
+        if (!files.length) { listEl.innerHTML = emptyState('folder', 'Empty directory', 'Upload a file or create a folder to get started.'); return; }
+        listEl.innerHTML = files.map((f) => `
+          <div class="fm-row ${f.isDirectory ? 'dir' : ''}" data-name="${esc(f.name)}" data-dir="${f.isDirectory ? 1 : 0}">
+            <div class="fm-ico">${I(f.isDirectory ? 'folder' : /\.(jar|zip|gz|tar)$/i.test(f.name) ? 'archive' : /\.(json|yml|yaml|properties|txt|log|conf|sh)$/i.test(f.name) ? 'code' : 'file')}</div>
+            <div class="fm-name">${esc(f.name)}</div>
+            <div class="fm-meta">${f.isDirectory ? 'folder' : fmt.bytes(f.size)}</div>
+            <div class="fm-meta hide-sm">${f.modifiedAt ? fmt.date(f.modifiedAt) : '—'}</div>
+            <div class="cell-actions">
+              ${!f.isDirectory ? `<button class="btn btn-xs btn-ghost" data-dl="${esc(f.name)}" title="Download">${I('download')}</button>` : ''}
+              <button class="btn btn-xs btn-ghost" data-ren="${esc(f.name)}" title="Rename">${I('edit')}</button>
+              <button class="btn btn-xs btn-ghost" data-del="${esc(f.name)}" title="Delete">${I('trash')}</button>
+            </div>
+          </div>`).join('');
+
+        listEl.querySelectorAll('.fm-row').forEach((row) => {
+          const name = row.dataset.name;
+          row.ondblclick = () => {
+            if (row.dataset.dir === '1') load(fm.path ? `${fm.path}/${name}` : name);
+            else openFile(fm.path ? `${fm.path}/${name}` : name);
+          };
+          row.onclick = (e) => {
+            if (e.target.closest('button')) return;
+            listEl.querySelectorAll('.fm-row').forEach((r) => r.style.background = '');
+            row.style.background = 'rgba(139,92,246,.12)';
+          };
+        });
+        listEl.querySelectorAll('[data-dl]').forEach((b) => b.onclick = async (e) => {
+          e.stopPropagation();
+          const p = fm.path ? `${fm.path}/${b.dataset.dl}` : b.dataset.dl;
+          const res = await API.raw(`/api/servers/${s.id}/files/download?file=${encodeURIComponent(p)}`);
+          const blob = await res.blob();
+          const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = b.dataset.dl; a.click();
+          setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        });
+        listEl.querySelectorAll('[data-ren]').forEach((b) => b.onclick = (e) => {
+          e.stopPropagation();
+          window.el.promptDialog({
+            title: 'Rename', label: 'New name', value: b.dataset.ren,
+            onSubmit: async (val) => {
+              const from = fm.path ? `${fm.path}/${b.dataset.ren}` : b.dataset.ren;
+              const to = fm.path ? `${fm.path}/${val}` : val;
+              await API.post(`/api/servers/${s.id}/files/rename`, { oldPath: from, newPath: to });
+              toast('Renamed', 'ok'); load(fm.path);
+            }
+          });
+        });
+        listEl.querySelectorAll('[data-del]').forEach((b) => b.onclick = (e) => {
+          e.stopPropagation();
+          window.el.confirmDialog({
+            title: `Delete ${b.dataset.del}?`, message: 'This removes the file or folder from the server directory.',
+            confirmLabel: 'Delete',
+            onConfirm: async () => {
+              const p = fm.path ? `${fm.path}/${b.dataset.del}` : b.dataset.del;
+              await API.post(`/api/servers/${s.id}/files/delete`, { itemPath: p });
+              toast('Deleted', 'ok'); load(fm.path);
+            }
+          });
+        });
+      } catch (e) { listEl.innerHTML = emptyState('alert', 'Cannot read directory', e.message); }
+    }
+
+    async function openFile(filePath) {
+      let content = '';
+      try { const r = await API.get(`/api/servers/${s.id}/files/content?file=${encodeURIComponent(filePath)}`); content = r.content; }
+      catch (e) { toast(e.message, 'err'); return; }
+      window.el.modal({
+        title: filePath.split('/').pop(), subtitle: filePath, size: 'wide',
+        body: `<textarea class="code-editor" id="fm-editor" spellcheck="false">${esc(content)}</textarea>`,
+        footer: `<button class="btn" data-cancel>Close</button><button class="btn btn-primary" data-save>${I('save')} Save file</button>`,
+        onMount(wrap, close) {
+          wrap.querySelector('[data-cancel]').onclick = close;
+          wrap.querySelector('[data-save]').onclick = async () => {
+            try {
+              await API.post(`/api/servers/${s.id}/files/content`, { filePath, content: wrap.querySelector('#fm-editor').value });
+              toast('File saved', 'ok'); close(); load(fm.path);
+            } catch (e) { toast(e.message, 'err'); }
+          };
+        }
+      });
+    }
+
+    document.getElementById('fm-refresh').onclick = () => load(fm.path);
+    document.getElementById('fm-new-dir').onclick = () => window.el.promptDialog({
+      title: 'New folder', label: 'Folder name', confirmLabel: 'Create',
+      onSubmit: async (name) => {
+        await API.post(`/api/servers/${s.id}/files/directory`, { dirPath: fm.path ? `${fm.path}/${name}` : name });
+        toast('Folder created', 'ok'); load(fm.path);
+      }
+    });
+    document.getElementById('fm-new-file').onclick = () => window.el.promptDialog({
+      title: 'New file', label: 'File name', confirmLabel: 'Create',
+      onSubmit: async (name) => {
+        const p = fm.path ? `${fm.path}/${name}` : name;
+        await API.post(`/api/servers/${s.id}/files/content`, { filePath: p, content: '' });
+        toast('File created', 'ok'); load(fm.path);
+      }
+    });
+    document.getElementById('fm-upload').onchange = async (e) => {
+      const files = Array.from(e.target.files || []);
+      if (!files.length) return;
+      toast(`Uploading ${files.length} file(s)…`, 'info', 'Upload');
+      let ok = 0;
+      for (const f of files) {
+        const fd = new FormData();
+        fd.append('file', f);
+        try { await API.upload(`/api/servers/${s.id}/files/upload?directory=${encodeURIComponent(fm.path || '')}`, fd); ok++; }
+        catch (err) { toast(`${f.name}: ${err.message}`, 'err'); }
+      }
+      toast(`${ok}/${files.length} file(s) uploaded`, ok ? 'ok' : 'err');
+      e.target.value = '';
+      load(fm.path);
+    };
+
+    paintQuick();
+    load('');
+  }
+
+  /* ---------------------------------------------------------------- players */
+  async function renderPlayers(host, s) {
+    host.innerHTML = `<div class="card"><div class="card-head"><div class="grow"><h3>Players</h3><div class="card-sub">Online players parsed live from the server console plus known player data</div></div>
+      <button class="btn btn-sm" id="pl-refresh">${I('refresh')} Refresh</button></div>
+      <div id="pl-body">${window.el.skeleton(4)}</div></div>`;
+    document.getElementById('pl-refresh').onclick = () => window.DKX.Router.resolve();
+    try {
+      const r = await API.get(`/api/servers/${s.id}/players`);
+      const online = (r.players && r.players.online) || r.onlinePlayers || [];
+      const known = r.allPlayers || (r.players && r.players.all) || [];
+      const onlineNames = new Set(online.map((p) => p.name));
+      const rows = [];
+      online.forEach((p) => rows.push({ ...p, online: true }));
+      known.forEach((p) => { if (!onlineNames.has(p.name)) rows.push({ ...p, online: false }); });
+      document.getElementById('pl-body').innerHTML = rows.length ? `
+        <div class="table-wrap"><table class="data">
+          <thead><tr><th>Player</th><th>State</th><th>Playtime / Last seen</th><th></th></tr></thead>
+          <tbody>${rows.map((p) => `<tr>
+            <td><div class="row gap-8"><div class="avatar" style="width:26px;height:26px;flex-basis:26px;border-radius:8px;font-size:10px">${esc(fmt.initials(p.name || p.username))}</div><b>${esc(p.name || p.username || '—')}</b></div></td>
+            <td>${p.online ? '<span class="chip chip-live"><i class="dot live"></i>Online</span>' : '<span class="chip">Offline</span>'}</td>
+            <td class="dim">${esc(p.lastSeen ? fmt.ago(p.lastSeen) : p.playtime ? fmt.uptime(p.playtime) : '—')}</td>
+            <td><div class="cell-actions">
+              <button class="btn btn-xs" data-cmd="op ${esc(p.name || p.username)}">${I('shield')} OP</button>
+              <button class="btn btn-xs" data-cmd="kick ${esc(p.name || p.username)}">Kick</button>
+              <button class="btn btn-xs btn-danger" data-cmd="ban ${esc(p.name || p.username)}">Ban</button>
+            </div></td>
+          </tr>`).join('')}</tbody></table></div>`
+        : emptyState('users', 'No players yet', 'Player data appears once someone joins the server.');
+      document.querySelectorAll('[data-cmd]').forEach((b) => b.onclick = async () => {
+        const cmd = b.dataset.cmd;
+        try { await API.post(`/api/servers/${s.id}/command`, { command: cmd }); toast(`Sent: ${cmd}`, 'ok'); }
+        catch (e) { toast(e.message, 'err'); }
+      });
+    } catch (e) {
+      document.getElementById('pl-body').innerHTML = emptyState('info', 'Player list unavailable', e.message);
+    }
+  }
+
+  /* ----------------------------------------------------------------- worlds */
+  async function renderWorlds(host, s) {
+    host.innerHTML = `<div class="card">
+      <div class="card-head"><div class="grow"><h3>Worlds</h3><div class="card-sub">Activate, clone, reset or download world folders</div></div>
+        <button class="btn btn-sm" id="w-refresh">${I('refresh')}</button></div>
+      <div id="w-body">${window.el.skeleton(4)}</div></div>`;
+    const paint = async () => {
+      try {
+        const r = await API.get(`/api/servers/${s.id}/worlds`);
+        const worlds = r.worlds || [];
+        const activeName = r.activeWorld;
+        document.getElementById('w-body').innerHTML = worlds.length ? `
+          <div class="table-wrap"><table class="data">
+            <thead><tr><th>World</th><th>Size</th><th>Active</th><th>Modified</th><th></th></tr></thead>
+            <tbody>${worlds.map((w) => `<tr>
+              <td><b>${esc(w.name)}</b><div class="tiny dim">${esc(w.gameMode || 'Survival')} · ${esc(w.difficulty || 'default')}${w.hasNether ? ' · nether' : ''}${w.hasEnd ? ' · end' : ''}</div></td>
+              <td class="num dim">${esc(w.sizeFormatted || fmt.bytes(w.sizeBytes))}</td>
+              <td>${w.isActive || w.name === activeName ? '<span class="chip chip-live">Active</span>' : '<span class="chip">Idle</span>'}</td>
+              <td class="dim">${esc(w.lastPlayed ? fmt.ago(w.lastPlayed) : '—')}</td>
+              <td><div class="cell-actions">
+                ${!(w.isActive || w.name === activeName) ? `<button class="btn btn-xs" data-act="${esc(w.name)}">${I('check')} Activate</button>` : ''}
+                <button class="btn btn-xs" data-clone="${esc(w.name)}">${I('copy')} Clone</button>
+                <button class="btn btn-xs btn-danger" data-del="${esc(w.name)}">${I('trash')}</button>
+              </div></td>
+            </tr>`).join('')}</tbody></table></div>`
+          : emptyState('map', 'No worlds found', 'Start the server once so it generates its first world.');
+        document.querySelectorAll('[data-act]').forEach((b) => b.onclick = async () => {
+          try { await API.post(`/api/servers/${s.id}/worlds/activate`, { worldName: b.dataset.act }); toast('World activated', 'ok'); paint(); } catch (e) { toast(e.message, 'err'); }
+        });
+        document.querySelectorAll('[data-clone]').forEach((b) => b.onclick = () => window.el.promptDialog({
+          title: 'Clone world', label: 'New world name', value: `${b.dataset.clone}-copy`, confirmLabel: 'Clone',
+          onSubmit: async (name) => { await API.post(`/api/servers/${s.id}/worlds/clone`, { sourceWorld: b.dataset.clone, newName: name }); toast('World cloned', 'ok'); paint(); }
+        }));
+        document.querySelectorAll('[data-del]').forEach((b) => b.onclick = () => window.el.confirmDialog({
+          title: `Delete ${b.dataset.del}?`, message: 'The world folder will be permanently removed from disk.', confirmLabel: 'Delete',
+          onConfirm: async () => { await API.post(`/api/servers/${s.id}/worlds/delete`, { worldName: b.dataset.del }); toast('World deleted', 'ok'); paint(); }
+        }));
+      } catch (e) { document.getElementById('w-body').innerHTML = emptyState('info', 'Worlds unavailable', e.message); }
+    };
+    document.getElementById('w-refresh').onclick = paint;
+    paint();
+  }
+
+  /* ---------------------------------------------------------------- backups */
+  async function renderBackups(host, s) {
+    host.innerHTML = `<div class="card">
+      <div class="card-head"><div class="grow"><h3>Backups</h3><div class="card-sub">Snapshot the whole server directory and restore in one click</div></div>
+        <button class="btn btn-sm btn-primary" id="b-create">${I('plus')} Create backup</button></div>
+      <div id="b-body">${window.el.skeleton(4)}</div></div>`;
+    const paint = async () => {
+      try {
+        const r = await API.get(`/api/servers/${s.id}/backups`);
+        const backups = r.backups || [];
+        document.getElementById('b-body').innerHTML = backups.length ? `
+          <div class="table-wrap"><table class="data">
+            <thead><tr><th>Name</th><th>Size</th><th>Type</th><th>Created</th><th></th></tr></thead>
+            <tbody>${backups.map((b) => `<tr>
+              <td><b>${esc(b.name)}</b><div class="tiny dim mono">${esc(b.fileName || b.file_name || '')}</div></td>
+              <td class="num">${esc(fmt.bytes(b.fileSize !== undefined ? b.fileSize : b.file_size))}</td>
+              <td>${(b.isLocked !== undefined ? b.isLocked : b.is_locked) ? '<span class="chip chip-warn"><i class="dot warn"></i>Locked</span>' : (b.isAutomatic !== undefined ? b.isAutomatic : b.is_automatic) ? '<span class="chip chip-info">Auto</span>' : '<span class="chip">Manual</span>'}</td>
+              <td class="dim">${esc(fmt.date(b.createdAt || b.created_at))}</td>
+              <td><div class="cell-actions">
+                <button class="btn btn-xs" data-restore="${b.id}">${I('rotate')} Restore</button>
+                <button class="btn btn-xs btn-ghost" data-lock="${b.id}" data-locked="${(b.isLocked !== undefined ? b.isLocked : b.is_locked) ? 1 : 0}">${I((b.isLocked !== undefined ? b.isLocked : b.is_locked) ? 'unlock' : 'lock')}</button>
+                <button class="btn btn-xs btn-danger" data-del="${b.id}">${I('trash')}</button>
+              </div></td>
+            </tr>`).join('')}</tbody></table></div>`
+          : emptyState('archive', 'No backups yet', 'Create your first snapshot — you can restore it at any time.', `<button class="btn btn-sm btn-primary" id="b-create-2">${I('plus')} Create backup</button>`);
+        const c2 = document.getElementById('b-create-2');
+        if (c2) c2.onclick = create;
+        document.querySelectorAll('[data-restore]').forEach((b) => b.onclick = () => window.el.confirmDialog({
+          title: 'Restore backup?', message: 'The current server files will be overwritten by this backup. Stop the server first for a clean restore.',
+          confirmLabel: 'Restore now', danger: false,
+          onConfirm: async () => { await API.post(`/api/servers/${s.id}/backups/${b.dataset.restore}/restore`); toast('Restore started', 'ok'); paint(); }
+        }));
+        document.querySelectorAll('[data-lock]').forEach((b) => b.onclick = async () => {
+          const locked = b.dataset.locked === '1';
+          try { await API.post(`/api/servers/${s.id}/backups/${b.dataset.lock}/lock`, { locked: !locked }); paint(); } catch (e) { toast(e.message, 'err'); }
+        });
+        document.querySelectorAll('[data-del]').forEach((b) => b.onclick = () => window.el.confirmDialog({
+          title: 'Delete backup?', message: 'This permanently removes the archive from disk.', confirmLabel: 'Delete',
+          onConfirm: async () => { await API.del(`/api/servers/${s.id}/backups/${b.dataset.del}`); toast('Backup deleted', 'ok'); paint(); }
+        }));
+      } catch (e) { document.getElementById('b-body').innerHTML = emptyState('info', 'Backups unavailable', e.message); }
+    };
+    const create = async () => {
+      try { toast('Creating backup — this can take a moment…', 'info'); await API.post(`/api/servers/${s.id}/backups`, { name: `manual-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}` }); toast('Backup created', 'ok'); paint(); }
+      catch (e) { toast(e.message, 'err'); }
+    };
+    document.getElementById('b-create').onclick = create;
+    paint();
+  }
+
+  /* -------------------------------------------------------------- schedules */
+  async function renderSchedules(host, s) {
+    host.innerHTML = `<div class="card">
+      <div class="card-head"><div class="grow"><h3>Schedules</h3><div class="card-sub">Cron-driven power actions and commands</div></div>
+      <button class="btn btn-sm btn-primary" id="sc-add">${I('plus')} New schedule</button></div>
+      <div id="sc-body">${window.el.skeleton(4)}</div></div>`;
+    const actions = [['start', 'Start server'], ['stop', 'Stop server'], ['restart', 'Restart server'], ['command', 'Send command'], ['backup', 'Create backup']];
+    const paint = async () => {
+      try {
+        const r = await API.get(`/api/servers/${s.id}/schedules`);
+        const list = r.schedules || [];
+        document.getElementById('sc-body').innerHTML = list.length ? `
+          <div class="table-wrap"><table class="data">
+            <thead><tr><th>Name</th><th>Cron</th><th>Action</th><th>Active</th><th>Last run</th><th></th></tr></thead>
+            <tbody>${list.map((x) => `<tr>
+              <td><b>${esc(x.name)}</b>${x.payload ? `<div class="tiny dim mono">${esc(String(x.payload).slice(0, 40))}</div>` : ''}</td>
+              <td class="mono">${esc(x.cron_expression || x.cronExpression || '')}</td>
+              <td><span class="chip chip-onyx">${esc(x.action_type || x.actionType || '')}</span></td>
+              <td>${(x.is_active !== undefined ? x.is_active : x.isActive) ? '<span class="chip chip-live">Active</span>' : '<span class="chip">Paused</span>'}</td>
+              <td class="dim">${esc(x.last_run_at || x.lastRunAt ? fmt.ago(x.last_run_at || x.lastRunAt) : 'never')}</td>
+              <td><div class="cell-actions">
+                <button class="btn btn-xs" data-toggle="${x.id}" data-active="${(x.is_active !== undefined ? x.is_active : x.isActive) ? 1 : 0}">${I((x.is_active !== undefined ? x.is_active : x.isActive) ? 'minus' : 'play')}</button>
+                <button class="btn btn-xs btn-danger" data-del="${x.id}">${I('trash')}</button>
+              </div></td>
+            </tr>`).join('')}</tbody></table></div>`
+          : emptyState('clock', 'No schedules', 'Automate restarts, backups and broadcasts on a cron schedule.');
+        document.querySelectorAll('[data-toggle]').forEach((b) => b.onclick = async () => {
+          try { await API.put(`/api/servers/${s.id}/schedules/${b.dataset.toggle}`, { is_active: b.dataset.active !== '1' }); paint(); } catch (e) { toast(e.message, 'err'); }
+        });
+        document.querySelectorAll('[data-del]').forEach((b) => b.onclick = () => window.el.confirmDialog({
+          title: 'Delete schedule?', message: 'This schedule will stop running immediately.', confirmLabel: 'Delete',
+          onConfirm: async () => { await API.del(`/api/servers/${s.id}/schedules/${b.dataset.del}`); paint(); }
+        }));
+      } catch (e) { document.getElementById('sc-body').innerHTML = emptyState('info', 'Schedules unavailable', e.message); }
+    };
+    document.getElementById('sc-add').onclick = () => {
+      window.el.modal({
+        title: 'New schedule', subtitle: 'Use a standard 5-part cron expression',
+        body: `<div class="col gap-14">
+          <div class="field"><label>Name</label><input class="input" id="sc-name" placeholder="Daily restart" /></div>
+          <div class="two-col">
+            <div class="field"><label>Cron expression</label><input class="input mono" id="sc-cron" placeholder="0 4 * * *" value="0 4 * * *" /></div>
+            <div class="field"><label>Action</label><select class="select" id="sc-action">${actions.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></div>
+          </div>
+          <div class="field"><label>Payload <span class="hint">(command to run, optional)</span></label><input class="input mono" id="sc-payload" placeholder="say Restarting in 5 minutes" /></div>
+          <div class="hint">Examples — <span class="mono">0 4 * * *</span> daily at 04:00 · <span class="mono">*/30 * * * *</span> every 30 min · <span class="mono">0 */6 * * *</span> every 6 hours</div>
+        </div>`,
+        footer: `<button class="btn" data-cancel>Cancel</button><button class="btn btn-primary" data-ok>Create schedule</button>`,
+        onMount(wrap, close) {
+          wrap.querySelector('[data-cancel]').onclick = close;
+          wrap.querySelector('[data-ok]').onclick = async () => {
+            try {
+              await API.post(`/api/servers/${s.id}/schedules`, {
+                name: wrap.querySelector('#sc-name').value || 'Schedule',
+                cron_expression: wrap.querySelector('#sc-cron').value,
+                action_type: wrap.querySelector('#sc-action').value,
+                payload: wrap.querySelector('#sc-payload').value
+              });
+              toast('Schedule created', 'ok'); close(); paint();
+            } catch (e) { toast(e.message, 'err'); }
+          };
+        }
+      });
+    };
+    paint();
+  }
+
+  /* ---------------------------------------------------------------- network */
+  async function renderNetwork(host, s) {
+    host.innerHTML = `<div class="split">
+      <div class="card"><div class="card-head"><h3>Network allocations</h3></div><div id="net-body">${window.el.skeleton(3)}</div></div>
+      <div class="card"><div class="card-head"><h3>Connection details</h3></div><div class="card-body">
+        <div class="section-label">Game address</div>${window.el.copyField(serverAddress(s))}
+        <div class="section-label mt-14">SFTP</div>${window.el.copyField(`sftp://${s.sftp_username || 'user.' + s.id}@${s.sftp_host || location.hostname}:${s.sftp_port || 3004}`)}
+      </div></div>
+    </div>`;
+    try {
+      const r = await API.get(`/api/servers/${s.id}/network`);
+      const allocs = r.allocations || r.network || [];
+      document.getElementById('net-body').innerHTML = allocs.length ? `<div class="table-wrap"><table class="data">
+        <thead><tr><th>IP</th><th>Port</th><th>Primary</th><th></th></tr></thead>
+        <tbody>${allocs.map((a) => `<tr><td class="mono">${esc(a.ip)}</td><td class="mono">${esc(a.port)}</td>
+          <td>${Number(a.id) === Number(s.allocation_id) ? '<span class="chip chip-live">Primary</span>' : '<span class="chip">Secondary</span>'}</td>
+          <td><div class="cell-actions">${Number(a.id) !== Number(s.allocation_id) ? `<button class="btn btn-xs" data-primary="${a.id}">Make primary</button>` : ''}</div></td></tr>`).join('')}</tbody></table></div>`
+        : emptyState('network', 'No allocations', 'Assign ports from the admin network page.');
+      document.querySelectorAll('[data-primary]').forEach((b) => b.onclick = async () => {
+        try { await API.post(`/api/servers/${s.id}/network/primary`, { allocationId: b.dataset.primary }); toast('Primary allocation updated', 'ok'); window.DKX.Router.resolve(); }
+        catch (e) { toast(e.message, 'err'); }
+      });
+    } catch (e) { document.getElementById('net-body').innerHTML = emptyState('info', 'Network unavailable', e.message); }
+  }
+
+  /* --------------------------------------------------------------- subusers */
+  async function renderSubusers(host, s) {
+    const ALL_PERMS = ['console.view', 'console.command', 'power.control', 'files.read', 'files.write', 'backups.read', 'backups.create', 'schedules.read', 'schedules.create', 'settings.view', 'settings.edit', 'subusers.read', 'subusers.create', 'players.read', 'players.manage'];
+    host.innerHTML = `<div class="card">
+      <div class="card-head"><div class="grow"><h3>Sub-users</h3><div class="card-sub">Give other accounts scoped access to this server</div></div>
+      <button class="btn btn-sm btn-primary" id="su-add">${I('plus')} Invite user</button></div>
+      <div id="su-body">${window.el.skeleton(3)}</div></div>`;
+    const paint = async () => {
+      try {
+        const r = await API.get(`/api/servers/${s.id}/subusers`);
+        const subs = r.subusers || [];
+        document.getElementById('su-body').innerHTML = subs.length ? `<div class="table-wrap"><table class="data">
+          <thead><tr><th>User</th><th>Email</th><th>Permissions</th><th></th></tr></thead>
+          <tbody>${subs.map((u) => `<tr>
+            <td><b>${esc(u.username)}</b></td><td class="dim">${esc(u.email)}</td>
+            <td><div class="row wrap gap-4">${(u.permissions || []).slice(0, 4).map((p) => `<span class="chip chip-plain tiny mono">${esc(p)}</span>`).join('')}${(u.permissions || []).length > 4 ? `<span class="chip chip-plain tiny">+${u.permissions.length - 4}</span>` : ''}</div></td>
+            <td><div class="cell-actions"><button class="btn btn-xs btn-danger" data-del="${u.id}">${I('trash')}</button></div></td>
+          </tr>`).join('')}</tbody></table></div>`
+          : emptyState('shield', 'No sub-users', 'You are the only one with access to this server.');
+        document.querySelectorAll('[data-del]').forEach((b) => b.onclick = () => window.el.confirmDialog({
+          title: 'Remove sub-user?', message: 'They will immediately lose access to this server.', confirmLabel: 'Remove',
+          onConfirm: async () => { await API.del(`/api/servers/${s.id}/subusers/${b.dataset.del}`); paint(); }
+        }));
+      } catch (e) { document.getElementById('su-body').innerHTML = emptyState('info', 'Sub-users unavailable', e.message); }
+    };
+    document.getElementById('su-add').onclick = () => {
+      window.el.modal({
+        title: 'Invite sub-user', subtitle: 'The account must already exist on the panel',
+        body: `<div class="col gap-14">
+          <div class="field"><label>Username or email</label><input class="input" id="su-user" placeholder="username or user@mail.com" /></div>
+          <div class="field"><label>Permissions</label>
+            <div class="row wrap gap-8" style="max-height:220px;overflow:auto">
+              ${ALL_PERMS.map((p) => `<label class="checkbox"><input type="checkbox" value="${p}" ${['console.view', 'files.read'].includes(p) ? 'checked' : ''}/> <span class="mono tiny">${esc(p)}</span></label>`).join('')}
+            </div>
+          </div>
+        </div>`,
+        footer: `<button class="btn" data-cancel>Cancel</button><button class="btn btn-primary" data-ok>Add sub-user</button>`,
+        onMount(wrap, close) {
+          wrap.querySelector('[data-cancel]').onclick = close;
+          wrap.querySelector('[data-ok]').onclick = async () => {
+            const perms = Array.from(wrap.querySelectorAll('input[type=checkbox]:checked')).map((c) => c.value);
+            try {
+              await API.post(`/api/servers/${s.id}/subusers`, { userIdentifier: wrap.querySelector('#su-user').value.trim(), permissions: perms });
+              toast('Sub-user added', 'ok'); close(); paint();
+            } catch (e) { toast(e.message, 'err'); }
+          };
+        }
+      });
+    };
+    paint();
+  }
+
+  /* ----------------------------------------------------------------- addons */
+  async function renderAddons(host, s) {
+    const cards = [
+      { key: 'startup', title: 'Startup variables', icon: 'bolt', text: 'Edit the {{VARIABLES}} used by the launch command.', hash: 'settings' },
+      { key: 'jar', title: 'Server software', icon: 'package', text: 'Switch between Paper, Fabric, Forge, Purpur, Vanilla and more.', hash: 'settings' },
+      { key: 'subdomains', title: 'Subdomains', icon: 'globe', text: 'Attach a domain so players connect without a port.', action: 'subdomains' },
+      { key: 'props', title: 'server.properties', icon: 'sliders', text: 'Visual editor for every Minecraft server property.', hash: 'settings' }
+    ];
+    host.innerHTML = `<div class="bento">
+      ${cards.map((c) => `<div class="span-6"><div class="card card-pad hoverable">
+        <div class="row gap-14"><div class="srv-icon">${I(c.icon)}</div>
+        <div class="grow"><h3 style="font-size:14px">${esc(c.title)}</h3><p class="dim small">${esc(c.text)}</p></div></div>
+        <div class="row gap-8 mt-14"><button class="btn btn-sm" data-act="${esc(c.action || '')}" data-hash="${esc(c.hash || '')}">Open</button></div>
+      </div></div>`).join('')}
+      <div class="span-12"><div class="card card-pad">
+        <div class="section-label">Installed plugins / mods</div>
+        <div id="add-plugins">${window.el.skeleton(3)}</div>
+      </div></div>
+    </div>`;
+    host.querySelectorAll('[data-act]').forEach((b) => b.onclick = () => {
+      if (b.dataset.hash) location.hash = `#/server/${s.id}/${b.dataset.hash}`;
+      else if (b.dataset.act === 'subdomains') renderSubdomains();
+    });
+
+    const renderSubdomains = async () => {
+      let rows = [];
+      try { const r = await API.get(`/api/servers/${s.id}/properties/subdomains`); rows = r.subdomains || []; } catch (e) {}
+      window.el.modal({
+        title: 'Player subdomains', subtitle: 'Point a friendly hostname at this server',
+        body: rows.length ? `<div class="table-wrap"><table class="data"><thead><tr><th>Domain</th><th>Created</th><th></th></tr></thead>
+          <tbody>${rows.map((d) => `<tr><td class="mono">${esc(d.full_domain)}</td><td class="dim">${esc(fmt.date(d.created_at, false))}</td>
+          <td><div class="cell-actions"><button class="btn btn-xs btn-danger" data-sd="${d.id}">${I('trash')}</button></div></td></tr>`).join('')}</tbody></table></div>`
+          : emptyState('globe', 'No subdomains', 'Add one below once your domain is configured in the panel settings.'),
+        footer: `<button class="btn" data-cancel>Close</button>`,
+        onMount(wrap, close) {
+          wrap.querySelector('[data-cancel]').onclick = close;
+          wrap.querySelectorAll('[data-sd]').forEach((b) => b.onclick = async () => {
+            try { await API.del(`/api/servers/${s.id}/properties/subdomains/${b.dataset.sd}`); toast('Removed', 'ok'); close(); } catch (e) { toast(e.message, 'err'); }
+          });
+        }
+      });
+    };
+
+    try {
+      const r = await API.get(`/api/servers/${s.id}/files?directory=${encodeURIComponent(s.jar_type && /forge|fabric|neoforge|quilt/i.test(s.jar_type) ? 'mods' : 'plugins')}`);
+      const files = (r.files || []).filter((f) => !f.isDirectory && /\.jar$/i.test(f.name));
+      document.getElementById('add-plugins').innerHTML = files.length
+        ? `<div class="row wrap gap-8">${files.map((f) => `<span class="chip chip-plain"><span class="mono tiny">${esc(f.name)}</span></span>`).join('')}</div>`
+        : `<p class="dim small">No jar files found in this folder yet. Install addons from the marketplace or upload jars in the file manager.</p>`;
+    } catch (e) {
+      document.getElementById('add-plugins').innerHTML = `<p class="dim small">Folder not readable yet — start the server once to generate it.</p>`;
+    }
+  }
+
+  /* --------------------------------------------------------------- settings */
+  async function renderSettings(host, s) {
+    const isMinecraft = s.server_type === 'minecraft';
+    const env = (() => { try { return typeof s.env_vars === 'string' ? JSON.parse(s.env_vars || '{}') : (s.env_vars || {}); } catch (e) { return {}; } })();
+
+    host.innerHTML = `<div class="col gap-14">
+      <div class="card">
+        <div class="card-head"><h3>General</h3></div>
+        <div class="card-body">
+          <form id="set-form" class="col gap-14">
+            <div class="two-col">
+              <div class="field"><label>Server name</label><input class="input" name="name" value="${esc(s.name)}" /></div>
+              <div class="field"><label>Description</label><input class="input" name="description" value="${esc(s.description || '')}" placeholder="Optional notes" /></div>
+            </div>
+            <div class="field"><label>Startup command</label><input class="input mono" name="startup_cmd" value="${esc(s.startup_cmd || '')}" /></div>
+            <div class="hint">Variables: <span class="mono">{{SERVER_MEMORY}}</span> <span class="mono">{{SERVER_JARFILE}}</span> <span class="mono">{{SERVER_PORT}}</span> <span class="mono">{{MAIN_FILE}}</span></div>
+            <div class="section-label mt-8">Resources</div>
+            <div class="three-col">
+              <div class="field"><label>Memory (MB)</label><input class="input" name="memory_mb" type="number" value="${esc(s.memory_mb || 1024)}" ${Store.isAdmin() ? '' : 'disabled'} /></div>
+              <div class="field"><label>CPU limit (%)</label><input class="input" name="cpu_limit" type="number" value="${esc(s.cpu_limit || 100)}" ${Store.isAdmin() ? '' : 'disabled'} /></div>
+              <div class="field"><label>Disk (MB)</label><input class="input" name="disk_mb" type="number" value="${esc(s.disk_mb || 5120)}" ${Store.isAdmin() ? '' : 'disabled'} /></div>
+            </div>
+            <div class="row gap-8"><button class="btn btn-primary" type="submit">${I('save')} Save changes</button></div>
+          </form>
+        </div>
+      </div>
+
+      ${isMinecraft ? `
+      <div class="card">
+        <div class="card-head"><div class="grow"><h3>server.properties</h3><div class="card-sub">Visual editor — restart the server to apply gameplay settings</div></div>
+          <button class="btn btn-sm" id="props-save">${I('save')} Save properties</button></div>
+        <div class="card-body" id="props-body">${window.el.skeleton(4)}</div>
+      </div>` : ''}
+
+      <div class="card">
+        <div class="card-head"><h3>Startup variables</h3></div>
+        <div class="card-body">
+          <div class="col gap-8" id="env-list">
+            ${Object.entries(env).length ? Object.entries(env).map(([k, v]) => `<div class="row gap-8"><input class="input mono" data-env-k value="${esc(k)}" disabled style="max-width:230px" /><input class="input mono" data-env-v value="${esc(v)}" /></div>`).join('')
+        : `<p class="dim small">No custom variables set. Add the ones your startup command uses.</p>`}
+          </div>
+          <div class="row gap-8 mt-14">
+            <input class="input mono" id="env-new-k" placeholder="VARIABLE_NAME" style="max-width:230px" />
+            <input class="input mono" id="env-new-v" placeholder="value" />
+            <button class="btn" id="env-add">${I('plus')} Add</button>
+            <button class="btn btn-primary" id="env-save">${I('save')} Save variables</button>
+          </div>
+        </div>
+      </div>
+
+      ${Store.isAdmin() ? `
+      <div class="card">
+        <div class="card-head"><h3>Danger zone</h3></div>
+        <div class="card-body">
+          <div class="row wrap gap-14">
+            <div class="grow"><b class="small">Reinstall server</b><p class="dim small">Re-downloads the server jar and recreates the container. World data is kept.</p></div>
+            <button class="btn btn-warn" id="dz-reinstall">${I('refresh')} Reinstall</button>
+          </div>
+          <div class="row wrap gap-14 mt-14" style="padding-top:14px;border-top:1px solid var(--line)">
+            <div class="grow"><b class="small">Delete server</b><p class="dim small">Destroys the server, its files, backups and allocations. This cannot be undone.</p></div>
+            <button class="btn btn-danger" id="dz-delete">${I('trash')} Delete server</button>
+          </div>
+        </div>
+      </div>` : ''}
+    </div>`;
+
+    document.getElementById('set-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(e.target).entries());
+      ['memory_mb', 'cpu_limit', 'disk_mb'].forEach((k) => { if (data[k]) data[k] = Number(data[k]); else delete data[k]; });
+      try { await API.put(`/api/servers/${s.id}`, data); toast('Server settings saved', 'ok'); window.DKX.Router.resolve(); }
+      catch (err) { toast(err.message, 'err'); }
+    };
+
+    const envAdd = document.getElementById('env-add');
+    envAdd.onclick = () => {
+      const k = document.getElementById('env-new-k').value.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+      const v = document.getElementById('env-new-v').value;
+      if (!k) return toast('Enter a variable name', 'warn');
+      const list = document.getElementById('env-list');
+      const row = document.createElement('div');
+      row.className = 'row gap-8';
+      row.innerHTML = `<input class="input mono" data-env-k value="${esc(k)}" disabled style="max-width:230px" /><input class="input mono" data-env-v value="${esc(v)}" />`;
+      list.appendChild(row);
+      document.getElementById('env-new-k').value = ''; document.getElementById('env-new-v').value = '';
+    };
+    document.getElementById('env-save').onclick = async () => {
+      const vars = {};
+      document.querySelectorAll('#env-list .row').forEach((r) => {
+        const k = r.querySelector('[data-env-k]').value, v = r.querySelector('[data-env-v]').value;
+        if (k) vars[k] = v;
+      });
+      try { await API.put(`/api/servers/${s.id}`, { env_vars: vars }); toast('Variables saved', 'ok'); }
+      catch (e) { toast(e.message, 'err'); }
+    };
+
+    if (isMinecraft) loadProperties(s);
+    if (Store.isAdmin()) {
+      document.getElementById('dz-reinstall').onclick = () => window.el.confirmDialog({
+        title: 'Reinstall server?', message: 'The jar will be downloaded again. Existing files stay in place.', confirmLabel: 'Reinstall', danger: false,
+        onConfirm: async () => { await API.post(`/api/servers/${s.id}/reinstall`); toast('Reinstall started', 'ok'); }
+      });
+      document.getElementById('dz-delete').onclick = () => window.el.confirmDialog({
+        title: `Delete "${s.name}"?`, message: 'All files, backups and schedules for this server will be permanently destroyed.', confirmLabel: 'Delete permanently',
+        onConfirm: async () => { await API.del(`/api/servers/${s.id}`); toast('Server deleted', 'ok'); location.hash = '#/portal/servers'; }
+      });
+    }
+  }
+
+  async function loadProperties(s) {
+    const body = document.getElementById('props-body');
+    if (!body) return;
+    let props = {};
+    let propsError = '';
+    try { const r = await API.get(`/api/servers/${s.id}/properties`); props = r.properties || {}; }
+    catch (e) { propsError = e.message; }
+    if (propsError) {
+      body.innerHTML = `<div class="banner-strip">${I('info')}<span>${esc(propsError)} — showing defaults you can still save.</span></div>`;
+    }
+
+    const FIELDS = [
+      { k: 'motd', t: 'text', l: 'MOTD' }, { k: 'max-players', t: 'number', l: 'Max players' },
+      { k: 'gamemode', t: 'select', l: 'Gamemode', o: ['survival', 'creative', 'adventure', 'spectator'] },
+      { k: 'difficulty', t: 'select', l: 'Difficulty', o: ['peaceful', 'easy', 'normal', 'hard'] },
+      { k: 'level-name', t: 'text', l: 'World name' }, { k: 'view-distance', t: 'number', l: 'View distance' },
+      { k: 'simulation-distance', t: 'number', l: 'Simulation distance' }, { k: 'server-port', t: 'number', l: 'Server port' }
+    ];
+    const BOOLS = ['pvp', 'online-mode', 'allow-flight', 'spawn-animals', 'spawn-monsters', 'spawn-npcs', 'enable-command-block', 'white-list', 'hardcore', 'allow-nether', 'force-gamemode'];
+
+    body.innerHTML = `<div class="three-col">
+      ${FIELDS.map((f) => `<div class="field"><label>${esc(f.l)}</label>
+        ${f.t === 'select'
+        ? `<select class="select" data-prop="${f.k}">${f.o.map((o) => `<option value="${o}" ${props[f.k] === o ? 'selected' : ''}>${o}</option>`).join('')}</select>`
+        : `<input class="input" data-prop="${f.k}" type="${f.t}" value="${esc(props[f.k] !== undefined ? props[f.k] : '')}" />`}
+      </div>`).join('')}
+    </div>
+    <div class="section-label mt-22">Toggles</div>
+    <div class="row wrap gap-14">
+      ${BOOLS.map((b) => `<label class="switch"><input type="checkbox" data-prop="${b}" ${props[b] === true || props[b] === 'true' ? 'checked' : ''}/><span class="track"></span><span class="switch-label">${esc(b)}</span></label>`).join('')}
+    </div>`;
+
+    document.getElementById('props-save').onclick = async () => {
+      const next = {};
+      body.querySelectorAll('[data-prop]').forEach((el) => {
+        if (el.type === 'checkbox') next[el.dataset.prop] = el.checked ? 'true' : 'false';
+        else next[el.dataset.prop] = el.value;
+      });
+      try { await API.put(`/api/servers/${s.id}/properties`, { properties: next }); toast('server.properties saved', 'ok'); }
+      catch (e) { toast(e.message, 'err'); }
+    };
+  }
+
+  window.DKX.Views.server = { shell, disconnectConsole };
+})();

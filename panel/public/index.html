@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#05050a" />
+  <title>DARKONYX PANEL</title>
+  <meta name="description" content="DARKONYX PANEL — obsidian-grade Minecraft server management." />
+  <link rel="icon" href="/assets/darkonyx/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/darkonyx.css" />
+</head>
+<body>
+  <div class="ambient" aria-hidden="true">
+    <div class="grid-veil"></div>
+    <div class="noise"></div>
+  </div>
+
+  <div id="app">
+    <div id="boot" class="auth-solo">
+      <div class="col center gap-14">
+        <div class="brand-mark" style="width:52px;height:52px;flex-basis:52px">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M12 2.6 20.5 7v10L12 21.4 3.5 17V7L12 2.6Z" stroke="#c4b5fd" stroke-width="1.4"/><path d="M12 7.4 16.6 10v4.6L12 17.2 7.4 14.6V10L12 7.4Z" fill="#8b5cf6" fill-opacity=".85"/></svg>
+        </div>
+        <div class="dim small mono">initialising darkonyx core…</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-root"></div>
+  <div id="menu-root"></div>
+  <div id="toast-root" class="toasts"></div>
+
+  <script src="/js/icons.js"></script>
+  <script src="/js/core.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/portal.js"></script>
+  <script src="/js/server.js"></script>
+  <script src="/js/admin.js"></script>
+  <script src="/js/market.js"></script>
+  <script src="/js/boot.js"></script>
+</body>
+</html>

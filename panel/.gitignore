@@ -1,0 +1,12 @@
+node_modules/
+data/*.sqlite3
+data/*.sqlite3-*
+data/sftp_host_key
+storage/servers/*
+!storage/servers/.gitkeep
+storage/backups/*
+!storage/backups/.gitkeep
+public/uploads/*
+!public/uploads/.gitkeep
+.env
+*.log
