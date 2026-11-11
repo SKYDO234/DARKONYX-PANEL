@@ -227,6 +227,7 @@ mass action that has no implementation is rejected rather than reported as
 | `panel/test/honesty-audit.js` | static + live proof that no telemetry is fabricated | **31/31** |
 | `panel/test/layout-audit.js` | overlay/z-index/click-target/design-system coverage | **18/18** |
 | `panel/test/click-probe.js` | clicks every clickable control on all 28 routes | **0 dead controls** |
+| `panel/test/page-load-audit.js` | loads the page over HTTP with the real script tags executing, then clicks the sidebar | **13/13** |
 | Route parity vs upstream | regex diff of `router.*` declarations, per file | 190 upstream → 197 here (1 upstream-only route deliberately dropped, 8 local additions) |
 | Backend source parity | per-directory file counts across `api, config, database, middleware, routes, services, sftp, websocket` | identical (21/21 services) |
 
@@ -237,4 +238,5 @@ npm run test:data                    # 31 data-integrity checks
 npm run test:ui                      # 28 UI checks (needs jsdom)
 npm run test:layout                  # 18 layout checks
 npm run test:clicks                  # 0 dead controls across 28 routes
+npm run test:page                    # real page load + real script execution
 ```

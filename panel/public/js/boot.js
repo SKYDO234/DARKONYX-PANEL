@@ -26,8 +26,39 @@
   const Theme = () => window.DKX.Theme;
   const Auth = () => window.Auth;
 
+  /* ---- stale-build guard -------------------------------------------------
+     A tab left open across a deploy keeps the old bundle in memory while the
+     server serves the new one. The symptom is indistinguishable from a broken
+     UI: clicks did fire, but against code that no longer matches the DOM.
+     Compare the build id baked into this page with the server's and reload
+     once (guarded so a flapping deploy cannot cause a reload loop). */
+  const BUILD = (document.querySelector('meta[name="dkx-build"]') || {}).content || '';
+  window.DKX_BUILD = BUILD;
+  async function checkBuild(reloadOnMismatch, overrideBuild) {
+    const build = overrideBuild || BUILD;
+    if (!build) return true;
+    try {
+      const r = await fetch('/api/build', { cache: 'no-store' });
+      const data = await r.json();
+      const same = !data.build || data.build === build;
+      if (!same && reloadOnMismatch !== false) {
+        const key = 'dkx.reloaded.' + data.build;
+        try {
+          if (!sessionStorage.getItem(key)) {
+            sessionStorage.setItem(key, '1');
+            location.reload();
+          }
+        } catch (e) { /* storage blocked: leave the tab alone */ }
+      }
+      return same;
+    } catch (e) { return true; }
+  }
+  window.DKX_checkBuild = checkBuild;
+
   async function boot() {
     window.DKX.Theme.init();
+    checkBuild(true);
+    setInterval(() => checkBuild(true), 120000);
 
     // restore cached identity for instant paint
     const cached = Store.cachedUser();

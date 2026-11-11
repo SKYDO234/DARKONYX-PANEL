@@ -157,6 +157,11 @@ Available suites:
 | `npm run test:layout` | 18 checks on overlays, z-index, click targets and design-system coverage |
 | `npm run test:ui` | 28 checks driving the real SPA in jsdom — login, navigation, all 28 routes, node panels, bulk actions |
 | `npm run test:clicks` | clicks every control on all 28 routes; fails on any dead button |
+| `npm run test:page` | loads the page over HTTP and executes the real `<script src>` tags, then clicks through the sidebar |
+
+Asset URLs are content-hashed and the running page checks `/api/build`, so a
+tab left open across an upgrade reloads itself instead of pairing old
+JavaScript with new markup (which looks identical to a broken UI).
 
 `test:ui` logs in through the real login form, navigates by clicking the
 sidebar exactly like a user, walks all 28 routes asserting no

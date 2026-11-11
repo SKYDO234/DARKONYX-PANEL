@@ -20,7 +20,8 @@
     "test:data": "node test/honesty-audit.js",
     "test:ui": "node test/ui-audit.js",
     "test:layout": "node test/layout-audit.js",
-    "test:clicks": "node test/click-probe.js"
+    "test:clicks": "node test/click-probe.js",
+    "test:page": "node test/page-load-audit.js"
   },
   "keywords": [
     "darkonyx",

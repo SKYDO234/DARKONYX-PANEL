@@ -1141,3 +1141,151 @@ table.data tbody tr:hover { background: rgba(139, 92, 246, 0.06); box-shadow: in
   table.data th, table.data td { padding: 10px 11px; }
   .card, .stat { border-radius: 16px; }
 }
+
+/* ==========================================================================
+   DARKONYX v3 — depth, motion and data-viz polish
+   Still additive: nothing here overrides layout, only how surfaces read and
+   how they respond. Every animation is GPU-friendly and respects
+   prefers-reduced-motion (handled at the bottom of the file).
+   ========================================================================== */
+
+:root {
+  --glow-onyx: 0 0 24px -6px rgba(139, 92, 246, 0.55);
+  --hairline: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.14) 22%, rgba(255, 255, 255, 0.14) 78%, transparent);
+}
+
+/* ---------- numeric emphasis ---------- */
+.stat .stat-value,
+.kv .v.mono,
+table.data .num,
+.clock-chip { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1, 'ss01' 1; }
+.stat .stat-value { line-height: 1.08; }
+.stat .stat-value small { opacity: .8; }
+
+/* ---------- gradient rule under page headers ---------- */
+.page-head { position: relative; padding-bottom: 18px; }
+.page-head::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 1px;
+  background: var(--hairline); opacity: .7; pointer-events: none;
+}
+
+/* ---------- stat cards: live glow + sweep on hover ---------- */
+.stat { isolation: isolate; }
+.stat::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: radial-gradient(120% 90% at 100% 0%, rgba(139, 92, 246, 0.16), transparent 58%);
+  opacity: 0; transition: opacity .3s var(--ease); z-index: -1;
+}
+.stat:hover::before { opacity: 1; }
+.stat .stat-top svg { transition: transform .3s var(--ease); }
+.stat:hover .stat-top svg { transform: translateY(-1px) scale(1.08); }
+
+/* ---------- cards: top sheen that follows the pointer row ---------- */
+.card { isolation: isolate; }
+.card::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  z-index: -1;
+}
+
+/* ---------- rail: quieter at rest, glowing when active ---------- */
+.rail-item.active svg { color: #e9e2ff; filter: drop-shadow(0 0 6px rgba(167, 139, 250, .65)); }
+.rail-item.active { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .09), 0 10px 26px -20px rgba(124, 58, 237, 1); }
+.rail-badge {
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
+  display: inline-grid; place-items: center; font-size: 10px; font-weight: 700;
+  background: var(--grad-onyx); color: #fff; margin-left: auto;
+}
+
+/* ---------- buttons: gradient ring on primary ---------- */
+.btn-primary::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .22), transparent 46%);
+  opacity: .55;
+}
+.btn-primary:active::after { opacity: .3; }
+.btn:focus-visible { outline: none; box-shadow: var(--ring); }
+
+/* ---------- inputs: subtle inset depth ---------- */
+:where(.input, .field input, .field select, .field textarea) {
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .28);
+}
+html[data-theme='light'] :where(.input, .field input, .field select, .field textarea) {
+  box-shadow: inset 0 1px 2px rgba(20, 20, 50, .07);
+}
+:where(.input, .field input, .field select, .field textarea):focus { box-shadow: var(--ring); }
+
+/* ---------- tables: zebra + hover accent ---------- */
+table.data tbody tr:nth-child(even) { background: rgba(255, 255, 255, .014); }
+table.data tbody tr:hover { background: rgba(139, 92, 246, .07); }
+table.data th { border-bottom-color: var(--line-strong); }
+
+/* ---------- chips + status dots ---------- */
+.chip { transition: background .16s var(--ease), border-color .16s var(--ease), transform .16s var(--ease); }
+.chip:hover { transform: translateY(-1px); }
+.dot.live, .dot.warn, .dot.danger { position: relative; }
+.dot.live::after {
+  content: ''; position: absolute; inset: -3px; border-radius: 50%;
+  border: 1px solid currentColor; opacity: .45; animation: pulseRing 2.4s var(--ease) infinite;
+}
+@keyframes pulseRing {
+  0% { transform: scale(.7); opacity: .6; }
+  70% { transform: scale(1.7); opacity: 0; }
+  100% { opacity: 0; }
+}
+
+/* ---------- meters: animated fill ---------- */
+.meter > span { transition: width .6s var(--ease); position: relative; }
+.meter > span::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .3), transparent);
+  opacity: .45; animation: meterSheen 3.4s linear infinite;
+}
+@keyframes meterSheen { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+
+/* ---------- charts ---------- */
+.chart-box svg path { transition: d .4s var(--ease); }
+.chart-box { position: relative; }
+
+/* ---------- console ---------- */
+.console-shell { box-shadow: var(--elev-2), inset 0 1px 0 rgba(255, 255, 255, .05); }
+.console-out { scroll-behavior: smooth; }
+.console-in input:focus { box-shadow: none; }
+
+/* ---------- skeletons & empty states ---------- */
+.skel { animation: shimmer 1.6s ease-in-out infinite, skelFade .4s var(--ease) both; }
+@keyframes skelFade { from { opacity: 0; } to { opacity: 1; } }
+.empty-icon svg { animation: emptyFloat 3.6s var(--ease) infinite alternate; }
+@keyframes emptyFloat { from { transform: translateY(2px); } to { transform: translateY(-3px); } }
+
+/* ---------- view transitions ---------- */
+.view-inner { animation: viewIn .34s var(--ease) both; }
+@keyframes viewIn {
+  from { opacity: 0; transform: translateY(8px) scale(.998); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------- scrollbars get a hint of onyx ---------- */
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .12); }
+::-webkit-scrollbar-thumb:hover { background: rgba(139, 92, 246, .5); }
+
+/* ---------- mobile refinements ---------- */
+@media (max-width: 900px) {
+  .page-head::after { opacity: .45; }
+  .stat .stat-value { font-size: 24px; }
+  .card { box-shadow: var(--elev-1); }
+  /* keep the primary action reachable on a phone */
+  .page-head .head-actions { position: sticky; top: 0; z-index: 5; }
+}
+
+/* ---------- light theme tuning ---------- */
+html[data-theme='light'] .stat::before { background: radial-gradient(120% 90% at 100% 0%, rgba(124, 58, 237, .1), transparent 58%); }
+html[data-theme='light'] table.data tbody tr:nth-child(even) { background: rgba(20, 20, 50, .02); }
+html[data-theme='light'] .card::after { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .8); }
+
+/* ---------- respect reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .meter > span::after, .dot.live::after, .empty-icon svg { animation: none !important; }
+  .view-inner { animation: none !important; }
+  .card.hoverable:hover, .srv-card:hover, .stat:hover, .btn:hover, .icon-btn:hover { transform: none !important; }
+}
