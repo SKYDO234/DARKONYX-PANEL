@@ -136,6 +136,42 @@ html[data-theme='light'] .ambient {
 .ambient::before { background: radial-gradient(circle, rgba(99, 102, 241, 0.5), transparent 65%); top: -22vmax; left: -12vmax; }
 .ambient::after { background: radial-gradient(circle, rgba(16, 185, 129, 0.32), transparent 65%); bottom: -26vmax; right: -14vmax; animation-delay: -12s; }
 
+/* ---------- panel wallpaper (admin branding) ----------
+   #panel-bg is the real background layer: an <img>/<video> sized to the
+   viewport, dimmed by --panel-veil (the "transparency" setting) and blurred by
+   --panel-blur. The aurora gradients stay underneath, so a failed or removed
+   wallpaper just reveals the default theme instead of a black screen. */
+.panel-bg { position: absolute; inset: 0; z-index: 0; opacity: 0; transition: opacity .6s var(--ease); }
+.panel-bg.is-on { opacity: 1; }
+.panel-bg.is-on { background-image: var(--panel-bg-image, none); background-size: cover; background-position: center; background-repeat: no-repeat; }
+.panel-bg > img, .panel-bg > video {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+  filter: blur(var(--panel-blur, 16px));
+  transform: scale(calc(1 + (var(--panel-blur, 16px) / 700)));
+}
+.panel-bg::after {
+  content: ''; position: absolute; inset: 0;
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgba(5, 5, 10, calc(var(--panel-veil, .18) * 0.55)), rgba(5, 5, 10, 1) 70%),
+    rgba(5, 5, 10, var(--panel-veil, .18));
+  pointer-events: none;
+}
+html[data-theme='light'] .panel-bg::after {
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgba(250, 250, 255, calc(var(--panel-veil, .18) * 0.55)), rgba(250, 250, 255, 1) 70%),
+    rgba(250, 250, 255, var(--panel-veil, .18));
+}
+html.has-bg .ambient { background: var(--void); }
+html.has-bg .ambient::before, html.has-bg .ambient::after { opacity: .18; }
+html.has-bg .grid-veil { opacity: .3; }
+/* a custom logo replaces the built-in mark everywhere it is drawn */
+html.has-logo .brand-mark {
+  background-image: var(--panel-logo); background-size: contain; background-position: center;
+  background-repeat: no-repeat; background-color: transparent; box-shadow: none;
+}
+html.has-logo .brand-mark > svg { display: none; }
+html.has-logo .brand-mark::after { display: none; }
+
 .ambient .grid-veil {
   position: absolute;
   inset: 0;
@@ -1504,3 +1540,95 @@ mark.con-hit { background: rgba(251, 191, 36, .32); color: #fff; border-radius: 
   border: 1px dashed var(--line-strong, rgba(255, 255, 255, .14)); color: #6b6b83;
   font-size: 10.5px; padding: 0 10px; line-height: 1.5;
 }
+
+/* ==========================================================================
+   Branding studio (admin → Settings → Branding)
+   ========================================================================== */
+.st-preview { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 14px; align-items: stretch; }
+.st-preview-frame {
+  position: relative; height: 190px; border-radius: var(--radius); overflow: hidden;
+  border: 1px solid var(--line-strong); background:
+    radial-gradient(1200px 700px at 8% -10%, rgba(124, 58, 237, .22), transparent 60%),
+    radial-gradient(900px 600px at 100% 0%, rgba(14, 165, 233, .14), transparent 55%), var(--void);
+  display: grid; place-items: center;
+}
+.st-preview-frame > img, .st-preview-frame > video {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+  filter: blur(var(--panel-blur, 16px)); transform: scale(1.04);
+}
+.st-preview-frame::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(120% 90% at 50% 0%, rgba(5, 5, 10, calc(var(--panel-veil, .18) * .55)), rgba(5, 5, 10, 1) 70%), rgba(5, 5, 10, var(--panel-veil, .18));
+}
+.st-preview-empty {
+  position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  color: #82829a; text-align: center; font-size: 11.5px;
+}
+.st-preview-empty svg { width: 22px; height: 22px; margin-bottom: 2px; opacity: .8; }
+.st-preview-empty b { color: #cfd0e0; font-size: 12.5px; }
+.st-preview-meta { display: flex; flex-direction: column; justify-content: center; gap: 2px; padding: 0 2px; }
+
+.st-wp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 10px; }
+.st-wp {
+  display: flex; flex-direction: column; gap: 6px; padding: 0; cursor: pointer; text-align: left;
+  background: transparent; border: 0; color: inherit; font: inherit;
+}
+.st-wp-thumb {
+  display: block; width: 100%; height: 74px; border-radius: 10px; background-size: cover; background-position: center;
+  border: 1px solid var(--line); background-color: var(--panel-2);
+  transition: border-color .16s var(--ease), transform .16s var(--ease), box-shadow .16s var(--ease);
+}
+.st-wp:hover .st-wp-thumb { transform: translateY(-1px); border-color: rgba(139, 92, 246, .5); }
+.st-wp.is-on .st-wp-thumb { border-color: var(--onyx); box-shadow: 0 0 0 2px rgba(139, 92, 246, .35); }
+.st-wp-name {
+  font-size: 10.5px; color: #9a9ab2; line-height: 1.35;
+  overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.st-wp.is-on .st-wp-name { color: #d6ccff; }
+
+.range { -webkit-appearance: none; appearance: none; width: 100%; height: 22px; background: transparent; cursor: pointer; }
+.range::-webkit-slider-runnable-track { height: 5px; border-radius: 99px; background: rgba(255, 255, 255, .12); }
+.range::-moz-range-track { height: 5px; border-radius: 99px; background: rgba(255, 255, 255, .12); }
+.range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 15px; height: 15px; margin-top: -5px; border-radius: 50%;
+  background: linear-gradient(140deg, #a78bfa, #6366f1); border: 2px solid #14141f; box-shadow: 0 0 0 3px rgba(139, 92, 246, .18);
+}
+.range::-moz-range-thumb {
+  width: 15px; height: 15px; border-radius: 50%; background: linear-gradient(140deg, #a78bfa, #6366f1);
+  border: 2px solid #14141f; box-shadow: 0 0 0 3px rgba(139, 92, 246, .18);
+}
+
+@media (max-width: 900px) {
+  .st-preview { grid-template-columns: minmax(0, 1fr); }
+  .st-preview-frame { height: 150px; }
+}
+
+/* ==========================================================================
+   Server marketplace tab (console area)
+   ========================================================================== */
+.mk-view { display: block; }
+.mk-body { padding: 16px 18px 18px; }
+.mk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); gap: 12px; }
+.mk-card {
+  display: flex; flex-direction: column; gap: 9px; padding: 13px 14px; border-radius: var(--radius);
+  border: 1px solid var(--line); background: rgba(255, 255, 255, .028); min-width: 0;
+  transition: border-color .16s var(--ease), transform .16s var(--ease), box-shadow .16s var(--ease);
+}
+.mk-card:hover { border-color: rgba(139, 92, 246, .35); transform: translateY(-1px); box-shadow: var(--elev-1, var(--shadow-sm)); }
+.mk-card-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.mk-ico {
+  width: 36px; height: 36px; flex: 0 0 36px; border-radius: 10px; display: grid; place-items: center;
+  background: var(--onyx-soft); color: #c4b5fd; overflow: hidden;
+}
+.mk-ico svg { width: 17px; height: 17px; }
+.mk-ico img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+.mk-card h4 { font-size: 13px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mk-meta { display: flex; gap: 5px; font-size: 10.5px; color: var(--text-3); min-width: 0; overflow: hidden; }
+.mk-desc { font-size: 11.5px; line-height: 1.55; color: var(--text-2); min-height: 36px; }
+.mk-foot { display: flex; align-items: center; gap: 8px; justify-content: space-between; margin-top: auto; padding-top: 2px; }
+.mk-count {
+  font-family: var(--mono); font-size: 10px; padding: 1px 6px; border-radius: 999px;
+  background: rgba(255, 255, 255, .07); border: 1px solid var(--line); color: var(--text-2); margin-left: 4px;
+}
+.tab.active .mk-count { background: var(--onyx-soft); border-color: rgba(139, 92, 246, .35); color: #d6ccff; }
+@media (max-width: 640px) { .mk-grid { grid-template-columns: minmax(0, 1fr); } }

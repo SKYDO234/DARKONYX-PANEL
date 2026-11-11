@@ -50,6 +50,12 @@ counted from `panel/src/routes` + `panel/src/api`.
     counters or the process tree in `/proc`; disk is the real size of the server
     directory. Anything the host cannot measure prints "not measured" with the
     reason instead of a zero (`GET /api/servers/:id/stats`)
+  - **Marketplace tab** — the Modrinth catalogue scoped to this server (plugins
+    for Bukkit-family, mods for Forge/Fabric/NeoForge/Quilt), one-click install
+    that resolves the file matching the server's loader + Minecraft version, an
+    **Installed** tab read straight from `plugins/` or `mods/` on disk with
+    remove, and the curated **Worlds** catalogue. Catalogue failures (offline
+    host) are reported as offline, never as an empty result
   - **Activity tab** — the per-server audit trail (`GET /api/activity/server/:id`,
     now scoped by `requireServerAccess('view')`)
 - Resource limits & build config (CPU %, RAM, disk, swap, IO weight)
@@ -179,8 +185,13 @@ option to move backups), single transfer, toggle install.
 
 **Locations** — CRUD, country/flag, per-node assignment (4 endpoints).
 
-**Settings** — branding (name, logo, colors), registration toggle, default
-language, default theme, wallpaper library (bundled + upload + custom
+**Settings** — branding studio: panel name, logo, favicon, wallpaper (bundled
+presets with thumbnails, 4K gallery search, direct image/video URL or upload),
+live blur + veil sliders with a preview frame that reports whether the media
+actually loads, and a reset-to-default. Everything is applied to the running
+page immediately and exposed before login through `/api/bootstrap`, so the
+sign-in screen is branded too. Registration toggle, default language, default
+theme, wallpaper library (bundled + upload + custom
 categories), reset to defaults, public settings endpoint.
 
 **Social login admin** — enable/disable providers, bulk update, per-provider

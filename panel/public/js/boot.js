@@ -68,11 +68,8 @@
     API.get('/api/bootstrap')
       .then((r) => {
         Store.settings = { ...(Store.settings || {}), ...(r.settings || {}) };
-        if (r.settings && r.settings.panel_name) document.title = r.settings.panel_name;
-        if (r.settings && r.settings.favicon_logo) {
-          const f = document.querySelector('link[rel=icon]');
-          if (f) f.href = r.settings.favicon_logo;
-        }
+        // branding (title, favicon, wallpaper, logo, blur) is applied by Theme
+        window.DKX.Theme.applyMedia(Store.settings);
       })
       .catch(() => {});
 
@@ -87,6 +84,7 @@
       Store.setUser(me.user);
       Store.settings = { ...(Store.settings || {}), ...(me.settings || {}) };
       Store.api = true;
+      window.DKX.Theme.applyMedia(Store.settings);
     } catch (e) {
       Store.setToken(''); Store.setUser(null);
       window.Auth.renderLogin();

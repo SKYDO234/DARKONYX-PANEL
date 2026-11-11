@@ -41,10 +41,14 @@ router.get('/wallpapers', async (req, res) => {
       query: searchQuery
     });
 
-    res.json(data);
+    res.json({ ...data, measured: data.measured !== false });
   } catch (err) {
     console.error('Wallpaper route error:', err);
-    res.status(500).json({ success: false, error: 'Failed to fetch wallpapers.' });
+    res.status(502).json({
+      success: false,
+      offline: /network|socket|tls|certificate|timeout|ENOTFOUND|ECONN/i.test(String(err.message || '')),
+      error: `The 4K wallpaper gallery could not be reached: ${err.message}`
+    });
   }
 });
 

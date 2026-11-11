@@ -132,7 +132,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     '/admin/overview', '/admin/servers', '/admin/users', '/admin/nodes', '/admin/network',
     '/admin/databases', '/admin/backups', '/admin/settings', '/admin/addons', '/admin/social', '/admin/updates',
     '/portal/overview', '/portal/servers', '/portal/activity', '/account', '/marketplace',
-    ...['console', 'files', 'players', 'worlds', 'backups', 'schedules', 'network', 'users', 'addons', 'databases', 'activity', 'settings']
+    ...['console', 'files', 'players', 'worlds', 'backups', 'schedules', 'network', 'users', 'addons', 'marketplace', 'databases', 'activity', 'settings']
       .map((t) => `/server/${sid}/${t}`),
     '/server/99999/console'
   ];

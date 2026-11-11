@@ -17,6 +17,7 @@
     { id: 'databases', label: 'Databases', icon: 'database' },
     { id: 'users', label: 'Sub-users', icon: 'shield' },
     { id: 'addons', label: 'Addons', icon: 'puzzle' },
+    { id: 'marketplace', label: 'Marketplace', icon: 'package' },
     { id: 'activity', label: 'Activity', icon: 'activity' },
     { id: 'settings', label: 'Settings', icon: 'sliders' }
   ];
@@ -174,7 +175,8 @@
       backups: renderBackups, schedules: renderSchedules, network: renderNetwork,
       users: renderSubusers, addons: renderAddons, settings: renderSettings,
       databases: (h, srv) => (window.DKX.Views.server.databases ? window.DKX.Views.server.databases(h, srv.id) : renderConsole(h, srv)),
-      activity: renderActivity
+      activity: renderActivity,
+      marketplace: renderMarketplace
     };
     (renderers[tab] || renderConsole)(body, s, perms);
   }
@@ -688,6 +690,222 @@
       });
     };
     paint();
+  }
+
+  /* ------------------------------------------------------------ marketplace */
+  /* Catalogue + one-click install straight into THIS server's plugins/ or
+     mods/ folder, plus the files already installed. The catalogue comes from
+     the public /api/marketplace endpoints; installed state is read from disk
+     by the server-scoped /api/servers/:id/addons/marketplace endpoint. */
+  async function renderMarketplace(host, s) {
+    const loader = String(s.jar_type || '').toLowerCase();
+    const isModServer = ['fabric', 'forge', 'neoforge', 'quilt'].includes(loader);
+    const isMinecraft = s.server_type === 'minecraft';
+    const st = { tab: 'plugins', query: '', type: isModServer ? 'mod' : 'plugin', kind: 'modrinth', items: [], loaded: false };
+
+    if (!isMinecraft) {
+      host.innerHTML = `<div class="card card-pad">${emptyState('package', 'Marketplace is for Minecraft servers',
+        `This is a ${esc(typeLabel(s.server_type))} server — plugins and mods cannot be installed into it. Use Files to manage its code.`)}</div>`;
+      return;
+    }
+
+    host.innerHTML = `<div class="mk-view">
+      <div class="card">
+        <div class="card-head">
+          <div class="grow"><h3>Marketplace</h3>
+            <div class="card-sub">Resources install into <span class="mono">${isModServer ? 'mods/' : 'plugins/'}</span> on <b>${esc(s.name)}</b> — restart the server afterwards to load them</div></div>
+          <div class="row gap-8">
+            <div class="input-group" style="width:260px">
+              <input class="input" id="mk-q" placeholder="Search ${isModServer ? 'mods' : 'plugins'}…" value="essentials" />
+            </div>
+            <button class="btn btn-sm" id="mk-go">${I('search')} Search</button>
+          </div>
+        </div>
+        <div class="mk-body">
+          <div class="tabs" id="mk-tabs">
+            <button class="tab active" data-mk="catalogue">${I('package')} Catalogue</button>
+            <button class="tab" data-mk="installed">${I('archive')} Installed <span class="mk-count" id="mk-installed-count">—</span></button>
+            <button class="tab" data-mk="worlds">${I('map')} Worlds</button>
+          </div>
+          <div id="mk-pane" class="mt-14">${window.el.skeleton(4)}</div>
+        </div>
+      </div>
+    </div>`;
+
+    const pane = host.querySelector('#mk-pane');
+    const qInput = host.querySelector('#mk-q');
+
+    const setTab = (t) => {
+      st.tab = t;
+      host.querySelectorAll('[data-mk]').forEach((b) => b.classList.toggle('active', b.dataset.mk === t));
+      paint();
+    };
+    host.querySelectorAll('[data-mk]').forEach((b) => b.onclick = () => setTab(b.dataset.mk));
+
+    const runSearch = () => { st.query = (qInput.value || '').trim(); st.loaded = false; paint(); };
+    host.querySelector('#mk-go').onclick = runSearch;
+    qInput.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); runSearch(); } };
+
+    async function refreshInstalledCount() {
+      try {
+        const r = await API.get(`/api/servers/${s.id}/addons/marketplace`);
+        const el = host.querySelector('#mk-installed-count');
+        if (el) el.textContent = String((r.installed || []).length);
+      } catch (e) { /* count is decoration; the tab itself reports errors */ }
+    }
+
+    async function paint() {
+      if (st.tab === 'installed') return paintInstalled();
+      if (st.tab === 'worlds') return paintWorlds();
+      return paintCatalogue();
+    }
+
+    function offlineMessage(e) {
+      const text = String(e && e.message || '');
+      return /network|socket|tls|cert|fetch|unreachable|ENOTFOUND|ECONN|EAI_AGAIN|Modrinth|502/i.test(text);
+    }
+
+    async function paintCatalogue() {
+      pane.innerHTML = window.el.skeleton(4);
+      if (st.kind === 'worlds') return paintWorlds();
+      try {
+        const r = await API.get(`/api/marketplace/search?query=${encodeURIComponent(st.query || 'essentials')}&limit=24&projectType=${encodeURIComponent(st.type)}`);
+        const hits = r.projects || r.hits || r.results || [];
+        st.items = hits;
+        pane.innerHTML = hits.length ? `<div class="mk-grid">${hits.map((h) => `
+          <article class="mk-card">
+            <div class="mk-card-head">
+              <div class="mk-ico">${h.iconUrl ? `<img src="${esc(h.iconUrl)}" alt="" onerror="this.remove()"/>` : I(st.type === 'mod' ? 'puzzle' : 'package')}</div>
+              <div class="grow" style="min-width:0">
+                <h4 title="${esc(h.title || h.slug)}">${esc(h.title || h.slug)}</h4>
+                <div class="mk-meta"><span>${esc(h.author || 'community')}</span><span>·</span><span>↓ ${esc(fmt.num(h.downloads || 0))}</span></div>
+              </div>
+            </div>
+            <p class="mk-desc">${esc(String(h.description || '').slice(0, 120))}${String(h.description || '').length > 120 ? '…' : ''}</p>
+            <div class="row wrap gap-4">${(h.displayCategories && h.displayCategories.length ? h.displayCategories : h.categories || []).slice(0, 3)
+        .map((c) => `<span class="chip chip-plain tiny">${esc(c)}</span>`).join('')}</div>
+            <div class="mk-foot">
+              <span class="dim tiny">for ${esc(s.jar_type || 'minecraft')}${s.jar_version ? ' ' + esc(s.jar_version) : ''}</span>
+              <button class="btn btn-sm btn-primary" data-install="${esc(h.slug || h.id)}" data-title="${esc(h.title || h.slug)}">${I('download')} Install</button>
+            </div>
+          </article>`).join('')}</div>`
+          : emptyState('search', 'Nothing found', `No ${st.type}s matched “${esc(st.query || 'essentials')}”.`);
+        pane.querySelectorAll('[data-install]').forEach((b) => b.onclick = () => install(b));
+      } catch (e) {
+        pane.innerHTML = offlineMessage(e)
+          ? emptyState('globe', 'Marketplace is offline',
+            'This host cannot reach the Modrinth catalogue right now. Worlds below are curated and work offline; you can also upload jars with Files.')
+          : emptyState('alert', 'Marketplace unavailable', e.message);
+      }
+    }
+
+    /* Resolve the best file for this server's loader + version, then install. */
+    async function install(btn) {
+      const slug = btn.dataset.install;
+      const title = btn.dataset.title;
+      btn.disabled = true;
+      const original = btn.innerHTML;
+      btn.innerHTML = 'Resolving…';
+      try {
+        const v = await API.get(`/api/marketplace/project/${encodeURIComponent(slug)}/versions`);
+        const versions = (v.versions || []).filter((x) => x.file && x.file.url);
+        if (!versions.length) throw new Error('This project has no downloadable file.');
+        const best = (s.jar_version ? versions.find((x) => (x.gameVersions || []).includes(s.jar_version)) : null) || versions[0];
+        btn.innerHTML = 'Installing…';
+        const r = await API.post('/api/marketplace/install', {
+          serverId: s.id,
+          downloadUrl: best.file.url,
+          fileName: best.file.filename || `${slug}.jar`,
+          targetType: st.type,
+          projectName: title
+        });
+        btn.innerHTML = `${I('check')} Installed`;
+        toast(`${title} → ${r.directory || (st.type === 'mod' ? 'mods/' : 'plugins/')} · restart to load`, 'ok', 'Installed');
+        refreshInstalledCount();
+        if (!r.restarted) window.el.toast('Restart the server to activate it', 'info', 'Reminder');
+      } catch (e) {
+        btn.disabled = false;
+        btn.innerHTML = original;
+        toast(e.message, 'err', 'Install failed');
+      }
+    }
+
+    async function paintInstalled() {
+      pane.innerHTML = window.el.skeleton(3);
+      try {
+        const r = await API.get(`/api/servers/${s.id}/addons/marketplace`);
+        const items = r.installed || [];
+        host.querySelector('#mk-installed-count').textContent = String(items.length);
+        pane.innerHTML = `
+          <div class="row wrap gap-8 mb-14">
+            <span class="chip chip-plain"><span class="mono tiny">${esc(r.folder || 'plugins')}/</span></span>
+            <span class="dim tiny">${items.length} file${items.length === 1 ? '' : 's'} · read from disk</span>
+          </div>
+          ${items.length ? `<div class="table-wrap"><table class="data">
+            <thead><tr><th>File</th><th>Folder</th><th>Size</th><th>Modified</th><th></th></tr></thead>
+            <tbody>${items.map((it) => `<tr>
+              <td class="mono tiny">${esc(it.fileName)}</td>
+              <td><span class="chip chip-plain tiny">${esc(it.directory)}</span></td>
+              <td class="num">${esc(it.sizeFormatted || fmt.bytes(it.size))}</td>
+              <td class="dim small">${esc(fmt.date(it.modifiedAt))}</td>
+              <td><div class="cell-actions"><button class="btn btn-xs btn-danger" data-uninstall="${esc(it.fileName)}" data-dir="${esc(it.directory)}" data-type="${esc(it.type)}">${I('trash')} Remove</button></div></td>
+            </tr>`).join('')}</tbody></table></div>`
+            : emptyState('archive', 'Nothing installed yet', `Install ${isModServer ? 'mods' : 'plugins'} from the Catalogue tab — they land in ${esc(r.folder || 'plugins')}/.`)}`;
+        pane.querySelectorAll('[data-uninstall]').forEach((b) => b.onclick = () => window.el.confirmDialog({
+          title: `Remove ${b.dataset.uninstall}?`,
+          message: 'The file is deleted from this server. Restart the server so it unloads.',
+          confirmLabel: 'Remove file',
+          onConfirm: async () => {
+            try {
+              await API.post('/api/marketplace/uninstall', {
+                serverId: s.id, fileName: b.dataset.uninstall, directory: b.dataset.dir, targetType: b.dataset.type
+              });
+              toast('Removed — restart the server to unload it', 'ok');
+              paintInstalled();
+            } catch (e) { toast(e.message, 'err'); }
+          }
+        }));
+      } catch (e) {
+        pane.innerHTML = emptyState('alert', 'Installed list unavailable', e.message);
+      }
+    }
+
+    async function paintWorlds() {
+      pane.innerHTML = window.el.skeleton(3);
+      try {
+        const r = await API.get('/api/marketplace/maps');
+        const maps = r.maps || [];
+        pane.innerHTML = maps.length ? `<div class="mk-grid">${maps.map((m) => `
+          <article class="mk-card">
+            <div class="mk-card-head">
+              <div class="mk-ico">${I('map')}</div>
+              <div class="grow" style="min-width:0"><h4>${esc(m.title)}</h4>
+                <div class="mk-meta"><span>${esc(m.category || 'world')}</span>${m.tag ? `<span>·</span><span>${esc(m.tag)}</span>` : ''}</div></div>
+            </div>
+            <p class="mk-desc">${esc(String(m.description || '').slice(0, 120))}${String(m.description || '').length > 120 ? '…' : ''}</p>
+            <div class="row wrap gap-4">${(m.versions || []).slice(0, 3).map((v) => `<span class="chip chip-plain tiny mono">${esc(v)}</span>`).join('')}</div>
+            <div class="mk-foot"><span class="dim tiny">curated · offline capable</span>
+              <button class="btn btn-sm btn-primary" data-map="${esc(m.id)}" data-title="${esc(m.title)}">${I('download')} Install world</button></div>
+          </article>`).join('')}</div>`
+          : emptyState('map', 'No worlds', 'The curated world catalogue is empty.');
+        pane.querySelectorAll('[data-map]').forEach((b) => b.onclick = async () => {
+          b.disabled = true; b.innerHTML = 'Installing…';
+          try {
+            await API.post(`/api/servers/${s.id}/worlds/install-map`, { mapId: b.dataset.map });
+            b.innerHTML = `${I('check')} Installed`;
+            toast(`${b.dataset.title} installed and set as the active world`, 'ok');
+          } catch (e) {
+            b.disabled = false; b.innerHTML = `${I('download')} Install world`;
+            toast(e.message, 'err');
+          }
+        });
+      } catch (e) {
+        pane.innerHTML = emptyState('globe', 'World catalogue unavailable', e.message);
+      }
+    }
+
+    paint();
+    refreshInstalledCount();
   }
 
   /* --------------------------------------------------------------- activity */

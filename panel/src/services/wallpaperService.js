@@ -170,7 +170,10 @@ class WallpaperService {
     } catch (err) {
       console.warn('Failed to fetch from 4kwallpapers.com, using fallback:', err.message);
 
-      // Return fallback result gracefully
+      // The remote gallery could not be reached. Say so explicitly and label
+      // the curated previews for what they are, instead of dressing a network
+      // failure up as a successful search result.
+      const offline = /network|socket|tls|certificate|timeout|ENOTFOUND|ECONN|EAI_AGAIN/i.test(String(err.message || ''));
       return {
         success: true,
         category,
@@ -181,7 +184,12 @@ class WallpaperService {
         totalItems: FALLBACK_WALLPAPERS.length,
         wallpapers: FALLBACK_WALLPAPERS,
         categories: CATEGORIES,
-        isFallback: true
+        isFallback: true,
+        offline,
+        measured: false,
+        message: offline
+          ? `4kwallpapers.com is unreachable from this host (${err.code || 'network error'}). Showing ${FALLBACK_WALLPAPERS.length} curated fallback wallpapers instead — direct image URLs and uploads work offline.`
+          : `The 4K gallery returned nothing usable (${err.message}). Showing curated fallback wallpapers instead.`
       };
     }
   }

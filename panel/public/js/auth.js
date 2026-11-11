@@ -25,7 +25,7 @@
 
     async boot() {
       const s = Store.settings || {};
-      if (s.panel_name) document.title = s.panel_name;
+      if (window.DKX && window.DKX.Theme) window.DKX.Theme.applyMedia(s);
       const me = Store.cachedUser();
       if (Store.token && me) Store.user = me;
     },

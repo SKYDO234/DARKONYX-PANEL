@@ -762,18 +762,54 @@
             <span class="switch-label">Enable in-panel tutorials</span></label>
         </div></div>
 
-        <div class="card hidden" data-panel="1"><div class="card-head"><h3>Branding</h3></div><div class="card-body col gap-14">
+        <div class="card hidden" data-panel="1"><div class="card-head"><div class="grow"><h3>Branding</h3>
+          <div class="card-sub">Every control here previews live as you touch it — Save settings keeps it for everyone</div></div>
+          <div class="row gap-8">
+            <button class="btn btn-sm" id="st-brand-reset">${I('refresh')} Reset to default</button>
+          </div></div>
+          <div class="card-body col gap-14">
           <div class="two-col">
-            <div class="field"><label>Logo URL</label><input class="input" data-set="panel_logo" value="${esc(s.panel_logo || '')}" placeholder="/uploads/branding/logo.png" /></div>
-            <div class="field"><label>Favicon URL</label><input class="input" data-set="favicon_logo" value="${esc(s.favicon_logo || '')}" /></div>
+            <div class="field"><label>Logo URL</label><input class="input" data-set="panel_logo" value="${esc(s.panel_logo || '')}" placeholder="/uploads/branding/logo.png or https://…" /></div>
+            <div class="field"><label>Favicon URL</label><input class="input" data-set="favicon_logo" value="${esc(s.favicon_logo || '')}" placeholder="https://…/favicon.png" /></div>
           </div>
-          <div class="field"><label>Background URL / video</label><input class="input" data-set="panel_bg" value="${esc(s.panel_bg || '')}" placeholder="https://… or /uploads/branding/bg.mp4" /></div>
+          <div class="field"><label>Background wallpaper — image URL, video URL or a path below</label>
+            <input class="input" data-set="panel_bg" id="st-bg" value="${esc(s.panel_bg || '')}" placeholder="https://…/wallpaper.jpg · https://…/loop.mp4 · /uploads/branding/bg.mp4" /></div>
           <div class="row gap-8 wrap">
-            <label class="btn btn-sm">${I('upload')} Upload branding<input type="file" id="st-upload" style="display:none" /></label>
-            <span class="dim tiny">Images or video up to 100MB. Uploaded assets are stored under /uploads/branding.</span>
+            <label class="btn btn-sm">${I('upload')} Upload image / video<input type="file" id="st-upload" accept="image/*,video/*" style="display:none" /></label>
+            <label class="btn btn-sm">${I('upload')} Upload logo<input type="file" id="st-upload-logo" accept="image/*" style="display:none" /></label>
+            <button class="btn btn-sm" id="st-bg-clear">${I('x')} Remove wallpaper</button>
+            <span class="dim tiny">Images or video up to 100 MB — stored under /uploads/branding.</span>
           </div>
+          <div id="st-upload-note" class="dim tiny"></div>
+
+          <div class="st-preview" id="st-preview">
+            <div class="st-preview-frame" id="st-preview-frame">
+              <span class="st-preview-empty" id="st-preview-empty">${I('sparkles')}<b>No wallpaper</b><span>The default aurora theme is showing.</span></span>
+            </div>
+            <div class="st-preview-meta">
+              <div class="kv"><span class="k">Type</span><span class="v" id="st-preview-type">—</span></div>
+              <div class="kv"><span class="k">Status</span><span class="v" id="st-preview-state">—</span></div>
+            </div>
+          </div>
+
+          <div class="two-col mt-8">
+            <div class="field"><label>Wallpaper blur — <b class="mono" id="st-blur-val">${esc(s.blur_bar || 16)}px</b></label>
+              <input type="range" min="0" max="40" step="1" class="range" data-set="blur_bar" id="st-blur" value="${esc(s.blur_bar || 16)}" /></div>
+            <div class="field"><label>Darkening veil — <b class="mono" id="st-veil-val">${esc(s.transparency_bar || 18)}%</b></label>
+              <input type="range" min="0" max="96" step="2" class="range" data-set="transparency_bar" id="st-veil" value="${esc(s.transparency_bar || 18)}" /></div>
+          </div>
+
           <div class="section-label mt-8">Bundled wallpapers</div>
-          <div class="row wrap gap-8" id="st-wallpapers">${window.el.skeleton(2)}</div>
+          <div class="st-wp-grid" id="st-wallpapers">${window.el.skeleton(2)}</div>
+
+          <div class="section-label mt-8">4K gallery</div>
+          <div class="row gap-8 wrap">
+            <input class="input" id="st-wp-q" placeholder="Search 4K wallpapers…" style="max-width:260px" />
+            <select class="select" id="st-wp-cat" style="width:auto"><option value="all">All categories</option></select>
+            <button class="btn btn-sm" id="st-wp-go">${I('search')} Search</button>
+          </div>
+          <div class="st-wp-grid" id="st-4k">${window.el.skeleton(2)}</div>
+          <div id="st-4k-note" class="dim tiny"></div>
         </div></div>
 
         <div class="card hidden" data-panel="2"><div class="card-head"><h3>Security</h3></div><div class="card-body col gap-14">
@@ -806,24 +842,227 @@
       document.querySelectorAll('[data-set]').forEach((el) => {
         payload[el.dataset.set] = el.type === 'checkbox' ? (el.checked ? 'true' : 'false') : el.value;
       });
-      try { await API.put('/api/admin/settings', payload); toast('Settings saved', 'ok'); }
-      catch (e) { toast(e.message, 'err'); }
+      const btn = document.getElementById('st-save');
+      btn.disabled = true;
+      try {
+        await API.put('/api/admin/settings', payload);
+        // fold the saved values into the live settings so every page (title,
+        // rail brand, wallpaper, logo) updates without a reload
+        Store.settings = { ...(Store.settings || {}), ...payload };
+        window.DKX.Theme.applyMedia(Store.settings);
+        if (Store.user) window.DKX.Shell.syncUser();
+        toast('Settings saved — branding is live', 'ok');
+      } catch (e) { toast(e.message, 'err'); }
+      finally { btn.disabled = false; }
     };
 
-    document.getElementById('st-upload').onchange = async (e) => {
-      const file = e.target.files[0];
+    /* ---- branding: live preview -------------------------------------- */
+    const bgInput = document.getElementById('st-bg');
+    const preview = document.getElementById('st-preview');
+    const frame = document.getElementById('st-preview-frame');
+    const empty = document.getElementById('st-preview-empty');
+    const typeEl = document.getElementById('st-preview-type');
+    const stateEl = document.getElementById('st-preview-state');
+    const blurInput = document.getElementById('st-blur');
+    const veilInput = document.getElementById('st-veil');
+    const logoInput = document.querySelector('[data-set=panel_logo]');
+    const favInput = document.querySelector('[data-set=favicon_logo]');
+
+    const previewBg = () => {
+      const url = (bgInput.value || '').trim();
+      const T = window.DKX.Theme;
+      frame.querySelectorAll('img, video').forEach((n) => n.remove());
+      const isVideo = T.isVid(url);
+      const isImage = !isVideo && T.isImg(url);
+      typeEl.textContent = !url ? 'none' : isVideo ? 'video' : isImage ? 'image' : 'unrecognised URL';
+      if (!url) {
+        empty.style.display = '';
+        stateEl.textContent = 'default theme';
+        stateEl.className = 'v dim';
+        return;
+      }
+      if (!isImage && !isVideo) {
+        empty.style.display = '';
+        stateEl.textContent = 'cannot preview';
+        stateEl.className = 'v';
+        return;
+      }
+      empty.style.display = 'none';
+      stateEl.textContent = 'loading…';
+      stateEl.className = 'v dim';
+      if (isVideo) {
+        const v = document.createElement('video');
+        v.src = url; v.muted = true; v.loop = true; v.autoplay = true; v.playsInline = true;
+        v.onloadeddata = () => { stateEl.textContent = 'video loads'; stateEl.className = 'v'; };
+        v.onerror = () => { stateEl.textContent = 'video failed to load'; stateEl.className = 'v'; };
+        frame.appendChild(v);
+        v.play && v.play().catch(() => {});
+      } else {
+        const img = new Image();
+        img.onload = () => { stateEl.textContent = `image loads (${img.naturalWidth}×${img.naturalHeight})`; stateEl.className = 'v'; };
+        img.onerror = () => { stateEl.textContent = 'image failed to load'; stateEl.className = 'v'; };
+        img.src = url;
+        frame.appendChild(img);
+      }
+    };
+
+    const applyLive = (key, value) => {
+      const T = window.DKX.Theme;
+      const next = { ...(Store.settings || {}), [key]: value };
+      Store.settings = next;
+      T.applyMedia(next);
+    };
+
+    let bgTimer;
+    bgInput.oninput = () => {
+      document.getElementById('st-blur-val').textContent = `${blurInput.value}px`;
+      clearTimeout(bgTimer);
+      bgTimer = setTimeout(() => { previewBg(); applyLive('panel_bg', bgInput.value.trim()); }, 400);
+    };
+    blurInput.oninput = () => {
+      document.getElementById('st-blur-val').textContent = `${blurInput.value}px`;
+      applyLive('blur_bar', blurInput.value);
+    };
+    veilInput.oninput = () => {
+      document.getElementById('st-veil-val').textContent = `${veilInput.value}%`;
+      applyLive('transparency_bar', veilInput.value);
+    };
+    logoInput.oninput = () => applyLive('panel_logo', logoInput.value.trim());
+    favInput.oninput = () => applyLive('favicon_logo', favInput.value.trim());
+
+    document.getElementById('st-bg-clear').onclick = () => {
+      bgInput.value = '';
+      previewBg();
+      applyLive('panel_bg', '');
+      toast('Wallpaper cleared — save to make it permanent', 'info');
+    };
+
+    /* ---- uploads ---- */
+    const upload = async (file, type) => {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('type', type);
+      const note = document.getElementById('st-upload-note');
+      note.textContent = `uploading ${file.name}…`;
+      try {
+        const r = await API.upload('/api/admin/settings/upload', fd);
+        note.textContent = `${file.name} uploaded → ${r.url}`;
+        return r;
+      } catch (e) {
+        note.textContent = '';
+        toast(e.message, 'err', 'Upload failed');
+        return null;
+      }
+    };
+
+    const bgUpload = document.getElementById('st-upload');
+    bgUpload.onchange = async (e) => {
+      const file = e.target.files && e.target.files[0];
       if (!file) return;
-      const fd = new FormData(); fd.append('file', file); fd.append('type', file.type.startsWith('video') ? 'background' : 'logo');
-      try { const r = await API.upload('/api/admin/settings/upload', fd); toast('Branding uploaded', 'ok'); document.querySelector('[data-set=panel_logo]').value = r.url; }
-      catch (err) { toast(err.message, 'err'); }
+      const r = await upload(file, 'background');
+      bgUpload.value = '';
+      if (!r) return;
+      bgInput.value = r.url;
+      previewBg();
+      applyLive('panel_bg', r.url);
+      applyLive('panel_bg_type', r.isVideo ? 'video' : 'image');
+      toast('Wallpaper uploaded and applied — save to keep it', 'ok');
     };
 
+    const logoUpload = document.getElementById('st-upload-logo');
+    logoUpload.onchange = async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const r = await upload(file, 'logo');
+      logoUpload.value = '';
+      if (!r) return;
+      logoInput.value = r.url;
+      applyLive('panel_logo', r.url);
+      toast('Logo uploaded and applied — save to keep it', 'ok');
+    };
+
+    document.getElementById('st-brand-reset').onclick = () => window.el.confirmDialog({
+      title: 'Reset branding?',
+      message: 'Wallpaper, logo, favicon, blur and veil return to the shipped defaults. Panel name and security settings are untouched.',
+      confirmLabel: 'Reset branding',
+      onConfirm: async () => {
+        try {
+          const r = await API.post('/api/admin/settings/reset');
+          toast(r.message || 'Branding reset', 'ok');
+          window.DKX.Router.resolve();
+        } catch (e) { toast(e.message, 'err'); }
+      }
+    });
+
+    /* ---- bundled wallpapers (thumbnails, click to select) ---- */
+    const wpGrid = document.getElementById('st-wallpapers');
+    const selectWp = (url) => {
+      bgInput.value = url;
+      previewBg();
+      applyLive('panel_bg', url);
+    };
     try {
       const wp = await API.get('/api/admin/settings/wallpapers/bundled');
-      document.getElementById('st-wallpapers').innerHTML = (wp.wallpapers || []).map((w) => `
-        <button class="btn btn-xs" data-wp="${esc(w.url)}">${esc(w.name)}</button>`).join('');
-      document.querySelectorAll('[data-wp]').forEach((b) => b.onclick = () => { document.querySelector('[data-set=panel_bg]').value = b.dataset.wp; toast('Wallpaper selected — save to apply', 'info'); });
-    } catch (e) {}
+      const list = wp.wallpapers || [];
+      wpGrid.innerHTML = list.length ? list.map((w) => `
+        <button class="st-wp" data-wp="${esc(w.url)}" title="${esc(w.name)}">
+          <span class="st-wp-thumb" style="background-image:url('${esc(w.url)}')"></span>
+          <span class="st-wp-name">${esc(w.name)}</span>
+        </button>`).join('')
+        : emptyState('sparkles', 'No bundled wallpapers', 'Use an image URL or upload a file instead.');
+      wpGrid.querySelectorAll('[data-wp]').forEach((b) => b.onclick = () => {
+        wpGrid.querySelectorAll('.st-wp').forEach((x) => x.classList.toggle('is-on', x === b));
+        selectWp(b.dataset.wp);
+        toast(`"${b.title}" applied — save to keep it`, 'info');
+      });
+    } catch (e) {
+      wpGrid.innerHTML = emptyState('alert', 'Wallpaper catalogue unavailable', e.message);
+    }
+
+    /* ---- 4K gallery (real scrape, with honest offline state) ---- */
+    const catSel = document.getElementById('st-wp-cat');
+    const g4k = document.getElementById('st-4k');
+    const note4k = document.getElementById('st-4k-note');
+    let wpCatsLoaded = false;
+
+    const search4k = async () => {
+      const query = document.getElementById('st-wp-q').value.trim();
+      const category = catSel.value || 'all';
+      g4k.innerHTML = window.el.skeleton(2);
+      note4k.textContent = '';
+      try {
+        const r = await API.get(`/api/admin/settings/wallpapers?category=${encodeURIComponent(category)}&query=${encodeURIComponent(query)}&page=1`);
+        const items = r.wallpapers || [];
+        if (!wpCatsLoaded && r.categories && r.categories.length) {
+          catSel.innerHTML = `<option value="all">All categories</option>` + r.categories.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
+          catSel.value = category;
+          wpCatsLoaded = true;
+        }
+        g4k.innerHTML = items.length ? items.map((w) => `
+          <button class="st-wp" data-wp4k="${esc(w.full4k || w.preview || w.thumb)}" title="${esc(w.title || '')}">
+            <span class="st-wp-thumb" style="background-image:url('${esc(w.thumb || w.preview)}')"></span>
+            <span class="st-wp-name">${esc(w.title || 'Untitled')}</span>
+          </button>`).join('')
+          : emptyState('globe', 'Nothing found', 'No wallpapers matched that search.');
+        g4k.querySelectorAll('[data-wp4k]').forEach((b) => b.onclick = () => {
+          g4k.querySelectorAll('.st-wp').forEach((x) => x.classList.toggle('is-on', x === b));
+          selectWp(b.dataset.wp4k);
+          toast('Wallpaper applied — save to keep it', 'info');
+        });
+        if (r.offline) note4k.textContent = r.message || 'The 4K gallery is unreachable from this host; the fallbacks shown are curated previews.';
+      } catch (e) {
+        g4k.innerHTML = emptyState('globe', '4K gallery unavailable', /network|tls|socket|fetch|unreachable|ENOTFOUND|ECONN/i.test(e.message)
+          ? 'This host cannot reach 4kwallpapers.com. Use a direct image URL or upload a file — both work offline.'
+          : e.message);
+      }
+    };
+    document.getElementById('st-wp-go').onclick = search4k;
+    document.getElementById('st-wp-q').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); search4k(); } };
+    document.getElementById('st-wp-q').onfocus = () => { if (!wpCatsLoaded) search4k(); };
+    search4k();
+
+    previewBg();
+    window.DKX.Theme.applyMedia(Store.settings || {});
 
     const paintKeys = async () => {
       try {

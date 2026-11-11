@@ -417,7 +417,114 @@
       if (btn) btn.innerHTML = I(mode === 'dark' ? 'sun' : 'moon');
     },
     toggle() { this.apply(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'); },
-    init() { this.apply(SafeStore.get('dkx.theme') || 'dark'); }
+
+    /* Panel branding coming from the admin settings. The old build stored
+       panel_bg / panel_logo / blur / transparency and then never rendered any
+       of them, so choosing a wallpaper did nothing visible. These fields are
+       now projected onto the document as CSS variables and a real background
+       layer the moment settings arrive — no reload needed. */
+    media: { bg: '', type: 'image', logo: '', blur: 16, transparency: 18 },
+    // until the first bootstrap response arrives, "no wallpaper chosen" must not
+    // be reported as a broken URL everywhere
+    probed: false,
+
+    isImg(url) {
+      const clean = String(url || '').split('?')[0].toLowerCase();
+      return /\.(png|jpe?g|gif|webp|avif|svg|bmp)$/.test(clean)
+        || (/^https?:/i.test(url || '') && !/\.(mp4|webm|ogv|mov|m4v)(\?|$)/i.test(url || ''));
+    },
+    isVid(url) {
+      return /\.(mp4|webm|ogv|mov|m4v)(\?|$)/i.test(String(url || '')) || String(url || '').startsWith('data:video/');
+    },
+
+    applyMedia(settings) {
+      const s = settings || {};
+      this.probed = true;
+      const doc = document.documentElement;
+      const bg = String(s.panel_bg || '').trim();
+      const logo = String(s.panel_logo || s.favicon_logo || '').trim();
+      const blur = Number(s.blur_bar);
+      const transparency = Number(s.transparency_bar);
+
+      this.media.bg = bg;
+      this.media.logo = logo;
+      this.media.type = this.isVid(bg) ? 'video' : this.isImg(bg) ? 'image' : 'none';
+      this.media.blur = isFinite(blur) && s.blur_bar !== undefined && s.blur_bar !== '' ? Math.max(0, Math.min(40, blur)) : 16;
+      this.media.transparency = isFinite(transparency) && s.transparency_bar !== undefined && s.transparency_bar !== ''
+        ? Math.max(0, Math.min(96, transparency)) : 18;
+
+      doc.style.setProperty('--panel-blur', `${this.media.blur}px`);
+      doc.style.setProperty('--panel-veil', String(this.media.transparency / 100));
+      doc.classList.toggle('has-bg', this.media.type !== 'none');
+      doc.dataset.bgType = this.media.type;
+      if (this.media.type === 'image') doc.style.setProperty('--panel-bg-image', `url("${bg.replace(/"/g, '%22')}")`);
+      else doc.style.removeProperty('--panel-bg-image');
+
+      // branding: a logo replaces the mark on the rail, the login card and the splash
+      if (logo) {
+        doc.classList.add('has-logo');
+        doc.style.setProperty('--panel-logo', `url("${logo.replace(/"/g, '%22')}")`);
+      } else {
+        doc.classList.remove('has-logo');
+        doc.style.removeProperty('--panel-logo');
+      }
+
+      this.paintBackground();
+      if (s.panel_name) {
+        document.title = s.panel_name;
+        const b = $('#rail-brand');
+        if (b) b.textContent = String(s.panel_name).replace(/\s+panel$/i, '');
+      }
+      if (s.favicon_logo) {
+        const f = document.querySelector('link[rel="icon"]');
+        if (f) { f.href = s.favicon_logo; f.type = ''; }
+      }
+    },
+
+    paintBackground() {
+      const layer = document.getElementById('panel-bg');
+      if (!layer) return;
+      const { bg, type } = this.media;
+      layer.innerHTML = '';
+      layer.classList.toggle('is-on', type !== 'none');
+      if (type === 'none') return;
+
+      if (type === 'video') {
+        // a CSS background cannot play a video, so video wallpapers get a node
+        const v = document.createElement('video');
+        v.src = bg;
+        v.autoplay = true; v.muted = true; v.loop = true; v.playsInline = true;
+        v.setAttribute('muted', ''); v.setAttribute('playsinline', '');
+        v.onerror = () => {
+          layer.innerHTML = '';
+          layer.classList.remove('is-on');
+          if (this.probed && window.el && window.el.toast) {
+            window.el.toast('The background video could not be loaded — check the link or upload a file', 'err', 'Wallpaper');
+          }
+        };
+        v.play && v.play().catch(() => {});
+        layer.appendChild(v);
+        return;
+      }
+
+      // images are painted by CSS (instant, no JS decode wait); the layer class
+      // is already on, and a URL that fails to load gets reported and removed
+      const img = new Image();
+      img.onerror = () => {
+        if (this.media.bg !== bg) return;
+        layer.classList.remove('is-on');
+        document.documentElement.classList.remove('has-bg');
+        if (this.probed && window.el && window.el.toast) {
+          window.el.toast('The wallpaper URL could not be loaded — check the link or upload a file', 'err', 'Wallpaper');
+        }
+      };
+      img.src = bg;
+    },
+
+    init() {
+      this.apply(SafeStore.get('dkx.theme') || (Store.settings && Store.settings.theme_mode) || 'dark');
+      if (Store.settings) this.applyMedia(Store.settings);
+    }
   };
 
   /* ------------------------------------------------------------------ menu */
@@ -614,7 +721,7 @@
         if (root === 'server') {
           const id = parts[1];
           const tab = parts[2] || 'console';
-          const allowed = ['console', 'files', 'settings', 'backups', 'schedules', 'players', 'worlds', 'users', 'network', 'addons', 'databases', 'activity'];
+          const allowed = ['console', 'files', 'settings', 'backups', 'schedules', 'players', 'worlds', 'users', 'network', 'addons', 'marketplace', 'databases', 'activity'];
           if (!id || !allowed.includes(tab)) { Router.go(`/server/${id || ''}/console`); return; }
           return mount((host) => Views.server.shell(host, id, tab), 'portal-servers', [{ label: 'Servers', hash: '/portal/servers' }, { label: `#${id}` }]);
         }

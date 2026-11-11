@@ -125,6 +125,29 @@ router.delete('/subdomains/:subdomainId', authenticate, requireServerAccess('all
 // ==========================================
 // 2. EGG CHANGER ADDON (Client)
 // ==========================================
+// Server-scoped marketplace view: what is installed in this server right now.
+// The catalogue itself lives at /api/marketplace/search (public, cached); this
+// endpoint only reports the real files on disk for THIS server.
+router.get('/marketplace', authenticate, requireServerAccess('files.read'), async (req, res) => {
+  try {
+    const serverId = req.server.id;
+    const marketplaceService = require('../services/marketplaceService');
+    const installed = await marketplaceService.listInstalled(serverId);
+    const kind = req.server.jar_type && /forge|fabric|neoforge|quilt/i.test(req.server.jar_type) ? 'mod' : 'plugin';
+    res.json({
+      success: true,
+      server_id: serverId,
+      server_type: req.server.server_type,
+      jar_type: req.server.jar_type || null,
+      target: kind,
+      folder: kind === 'mod' ? 'mods' : 'plugins',
+      installed
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 router.get('/egg-changer', authenticate, requireServerAccess('settings.view'), async (req, res) => {
   try {
     const serverId = req.params.serverId;
