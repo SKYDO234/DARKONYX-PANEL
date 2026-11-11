@@ -8,7 +8,7 @@ const playerService = require('../services/playerService');
 const { authenticate, requireServerAccess } = require('../middleware/auth');
 const { logActivity } = require('../services/activityService');
 
-// 1. Get all player data for a server (SAGA Minecraft Player Manager v1.4 format)
+// 1. Get all player data for a server (DARKONYX player manager format)
 router.get('/', authenticate, requireServerAccess(), async (req, res) => {
   try {
     const serverId = req.params.serverId || req.params.id;
@@ -123,7 +123,7 @@ router.get('/:player/details', authenticate, requireServerAccess(), async (req, 
   }
 });
 
-// 4. Execute SAGA player management action
+// 4. Execute DARKONYX player management action
 router.post('/action', authenticate, requireServerAccess(), async (req, res) => {
   try {
     const serverId = req.params.serverId || req.params.id;

@@ -27,7 +27,7 @@ router.get('/', authenticate, requireAdmin, async (req, res) => {
 router.post('/reset', authenticate, requireAdmin, async (req, res) => {
   try {
     const defaults = await addonService.resetAddons();
-    logActivity(req.user.id, null, 'ADDONS_RESET', 'Reset all Arix addons to default configuration', req);
+    logActivity(req.user.id, null, 'ADDONS_RESET', 'Reset all addons to default configuration', req);
     res.json({ success: true, message: 'All addons reset to default settings!', settings: defaults });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

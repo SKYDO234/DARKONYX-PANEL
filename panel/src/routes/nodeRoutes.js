@@ -404,6 +404,36 @@ router.delete('/:id/allocations-clear-unassigned', authenticate, requireAdmin, a
   }
 });
 
+// Allocations: Set the IP alias for every allocation on an IP block
+// (mirrors the per-row alias editor in the node allocation view)
+router.put('/:id/allocations/alias', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const nodeId = req.params.id;
+    const { ip, ip_alias, allocId } = req.body;
+
+    if (allocId) {
+      const alloc = await query.get('SELECT * FROM allocations WHERE id = ? AND node_id = ?', [allocId, nodeId]);
+      if (!alloc) return res.status(404).json({ success: false, error: 'Allocation not found.' });
+      await query.run('UPDATE allocations SET ip_alias = ? WHERE id = ?', [(ip_alias || '').trim() || null, allocId]);
+      return res.json({ success: true, message: 'IP alias updated.' });
+    }
+
+    if (!ip) {
+      return res.status(400).json({ success: false, error: 'IP address is required.' });
+    }
+
+    const result = await query.run(
+      'UPDATE allocations SET ip_alias = ? WHERE node_id = ? AND ip = ?',
+      [(ip_alias || '').trim() || null, nodeId, ip]
+    );
+
+    logActivity(req.user.id, null, 'ALLOCATION_ALIAS', `Set IP alias "${ip_alias || 'none'}" on ${result.changes || 0} allocation(s)`, req);
+    res.json({ success: true, message: `IP alias applied to ${result.changes || 0} allocation(s).` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Wings Stats & Top Processes (nodes/view/wings-stats.blade.php)
 router.get('/:id/wings-stats', authenticate, requireAdmin, async (req, res) => {
   try {

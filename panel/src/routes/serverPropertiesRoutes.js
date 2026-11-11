@@ -48,7 +48,7 @@ function parseProperties(content) {
 }
 
 function serializeProperties(properties) {
-  let header = `# Minecraft server properties (Managed by DARKONYX PANEL & Arix Addon Pack)\n# ${new Date().toISOString()}\n`;
+  let header = `# Minecraft server properties (Managed by DARKONYX PANEL)\n# ${new Date().toISOString()}\n`;
   const lines = [header];
 
   for (const [key, val] of Object.entries(properties)) {

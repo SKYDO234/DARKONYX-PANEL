@@ -123,6 +123,14 @@
         <button class="btn" id="as-refresh">${I('refresh')}</button>
         <button class="btn btn-primary" id="as-new">${I('plus')} New server</button>
       </div></div>
+      <div id="as-bulk" class="row wrap gap-8 mb-14" style="align-items:center">
+        <span class="section-label" style="margin:0">Bulk actions</span>
+        <button class="btn btn-sm" id="as-bulk-suspend">${I('lock')} Suspend</button>
+        <button class="btn btn-sm" id="as-bulk-unsuspend">${I('unlock')} Unsuspend</button>
+        <button class="btn btn-sm" id="as-bulk-transfer">${I('bolt')} Transfer</button>
+        <button class="btn btn-sm btn-danger" id="as-bulk-delete">${I('trash')} Delete</button>
+        <span class="dim tiny">Tick servers in the table to act on them</span>
+      </div>
       <div class="card" id="as-card">${window.el.skeleton(8)}</div>`;
 
     document.getElementById('as-new').onclick = () => createServer(() => window.DKX.Router.resolve());
@@ -134,8 +142,10 @@
         const r = await API.get('/api/servers');
         const list = (r.servers || []).filter((s) => (s.name + ' ' + (s.owner_username || '') + ' ' + (s.node_name || '')).toLowerCase().includes(q.toLowerCase()));
         card.innerHTML = list.length ? `<div class="table-wrap"><table class="data">
-          <thead><tr><th>Server</th><th>Owner</th><th>Node</th><th>State</th><th>Build</th><th>Created</th><th style="text-align:right">Actions</th></tr></thead>
+          <thead><tr><th style="width:28px"><label class="checkbox"><input type="checkbox" id="as-selall" /></label></th>
+          <th>Server</th><th>Owner</th><th>Node</th><th>State</th><th>Build</th><th>Created</th><th style="text-align:right">Actions</th></tr></thead>
           <tbody>${list.map((s) => `<tr>
+            <td style="width:28px"><label class="checkbox"><input type="checkbox" data-sel="${s.id}" /></label></td>
             <td><div class="row gap-8"><div class="srv-icon" style="width:28px;height:28px;flex-basis:28px;border-radius:9px">${I('box')}</div>
               <div style="min-width:0"><b>${esc(s.name)}</b><div class="tiny dim mono truncate">${esc(serverAddress(s))}</div></div></div></td>
             <td class="dim">${esc(s.owner_username || '—')}</td>
@@ -151,6 +161,55 @@
             </div></td>
           </tr>`).join('')}</tbody></table></div>`
           : emptyState('server', q ? 'No matching servers' : 'No servers on this panel', q ? 'Try another search.' : 'Create one to get started.');
+        // ---- bulk selection + fleet actions (admin endpoints) ----
+        const selIds = () => [...card.querySelectorAll('[data-sel]:checked')].map((c) => Number(c.dataset.sel));
+        const allBox = card.querySelector('#as-selall');
+        if (allBox) allBox.onchange = () => {
+          card.querySelectorAll('[data-sel]').forEach((c) => { c.checked = allBox.checked; });
+        };
+        // the bulk toolbar lives in the page head, outside the re-rendered table card
+        const bulk = (id, fn) => { const b = document.getElementById(id.replace('#', '')); if (b) b.onclick = fn; };
+        bulk('#as-bulk-suspend', () => confirmDialog({
+          title: 'Suspend selected servers?', message: 'Owners lose power control until you unsuspend them.', confirmLabel: 'Suspend',
+          onConfirm: async () => {
+            try { const res = await API.post('/api/admin/servers/bulk-suspend', { server_ids: selIds() }); toast(res.message || 'Servers suspended', 'ok'); paint(q); }
+            catch (e) { toast(e.message, 'err'); }
+          }
+        }));
+        bulk('#as-bulk-unsuspend', async () => {
+          try { const res = await API.post('/api/admin/servers/bulk-unsuspend', { server_ids: selIds() }); toast(res.message || 'Servers unsuspended', 'ok'); paint(q); }
+          catch (e) { toast(e.message, 'err'); }
+        });
+        bulk('#as-bulk-transfer', () => modal({
+          title: 'Transfer selected servers', subtitle: 'Servers move to the destination node with a free allocation',
+          body: `<div class="field"><label>Destination node</label><select class="select" id="bt-node"></select></div>
+                 <p class="dim small mt-8">Allocations are chosen automatically on the target node.</p>`,
+          footer: `<button class="btn" data-cancel>Cancel</button><button class="btn btn-primary" data-ok>${I('bolt')} Transfer</button>`,
+          onMount(w, close) {
+            w.querySelector('[data-cancel]').onclick = close;
+            API.get('/api/admin/nodes').then((nr) => {
+              w.querySelector('#bt-node').innerHTML = (nr.nodes || []).map((n) => `<option value="${n.id}">${esc(n.name)} (${esc(n.fqdn)})</option>`).join('');
+            }).catch(() => {});
+            w.querySelector('[data-ok]').onclick = async () => {
+              const nodeId = Number(w.querySelector('#bt-node').value);
+              if (!nodeId) return toast('Pick a destination node', 'err');
+              try { const res = await API.post('/api/admin/servers/bulk-transfer', { server_ids: selIds(), node_id: nodeId }); toast(res.message || 'Servers transferred', 'ok'); close(); paint(q); }
+              catch (e) { toast(e.message, 'err'); }
+            };
+          }
+        }));
+        bulk('#as-bulk-delete', () => {
+          const ids = selIds();
+          if (!ids.length) return toast('Select at least one server', 'err');
+          confirmDialog({
+            title: `Delete ${ids.length} server(s)?`, message: 'Files, backups and allocations are removed permanently.', confirmLabel: 'Delete permanently',
+            onConfirm: async () => {
+              try { const res = await API.post('/api/admin/servers/bulk-delete', { server_ids: ids }); toast(res.message || 'Servers deleted', 'ok'); paint(q); }
+              catch (e) { toast(e.message, 'err'); }
+            }
+          });
+        });
+
         card.querySelectorAll('[data-open]').forEach((b) => b.onclick = () => location.hash = `#/server/${b.dataset.open}/console`);
         card.querySelectorAll('[data-susp]').forEach((b) => b.onclick = () => confirmDialog({
           title: b.dataset.on === '1' ? 'Unsuspend server?' : 'Suspend server?',
@@ -460,9 +519,27 @@
     };
 
     try {
-      const r = await API.get('/api/admin/nodes');
+      const [r, upd] = await Promise.all([
+        API.get('/api/admin/nodes'),
+        API.get('/api/admin/nodes/updates').catch(() => null)
+      ]);
       const list = r.nodes || [];
-      document.getElementById('nd-body').innerHTML = list.length ? `<div class="srv-grid">${list.map((n) => {
+      const needsUpdate = upd && upd.update_available;
+      const banner = needsUpdate ? `<div class="card card-pad mb-14" style="border-color:var(--warn, #d97706)">
+        <div class="row wrap gap-14" style="align-items:center">
+          <div class="srv-icon">${I('bolt')}</div>
+          <div class="grow"><b>Daemon update available</b>
+            <div class="dim small">This host runs v${esc(upd.current_version)} — v${esc(upd.latest_version)} is published.</div></div>
+          <button class="btn btn-sm" id="nd-upd-view">${I('info')} What's new</button>
+        </div></div>` : '';
+      const massBar = list.length > 1 ? `<div class="row wrap gap-8 mb-14" style="align-items:center">
+        <span class="section-label" style="margin:0">Fleet actions</span>
+        <input class="input" id="nd-appname" placeholder="App name for all nodes" style="max-width:230px" value="${esc((window.DKX.Store.bootstrap && window.DKX.Store.bootstrap.company_name) || '')}" />
+        <button class="btn btn-sm" id="nd-appname-set">${I('save')} Apply name</button>
+        <button class="btn btn-sm" id="nd-fleet-restart">${I('restart')} Restart all daemons</button>
+      </div>` : '';
+
+      document.getElementById('nd-body').innerHTML = banner + massBar + (list.length ? `<div class="srv-grid">${list.map((n) => {
         const used = Number(n.assigned_ports || n.used_memory_mb || 0);
         return `<article class="srv-card" style="cursor:default">
           <div class="srv-glow"></div>
@@ -476,16 +553,50 @@
             <div class="srv-specs">
               <div class="spec"><span>Memory</span><b>${esc(fmt.mb(n.memory_mb))}</b></div>
               <div class="spec"><span>Disk</span><b>${esc(fmt.mb(n.disk_mb))}</b></div>
-              <div class="spec"><span>SFTP</span><b>${esc(n.sftp_port)}</b></div>
+              <div class="spec"><span>Servers</span><b>${esc(n.server_count || 0)}</b></div>
             </div>
-            <div class="meta row gap-8 tiny dim"><span>${esc(n.location_name || 'default location')}</span></div>
+            <div class="meta row wrap gap-8 tiny dim">
+              <span>${esc(n.location_name || 'default location')}</span>
+              <span class="chip">${esc(n.assigned_allocations || 0)}/${esc(n.total_allocations || 0)} ports used</span>
+              <span class="mono">SFTP ${esc(n.sftp_port)}</span>
+            </div>
           </div>
           <div class="srv-foot">
             <a class="btn btn-sm grow" href="#/admin/network">${I('globe')} Allocations</a>
             <button class="btn btn-sm btn-ghost" data-nodes-detail="${n.id}">${I('activity')} Details</button>
           </div>
         </article>`;
-      }).join('')}</div>` : emptyState('network', 'No nodes', 'Add a node to start deploying servers.');
+      }).join('')}</div>` : emptyState('network', 'No nodes', 'Add a node to start deploying servers.'));
+
+      const updView = document.getElementById('nd-upd-view');
+      if (updView) updView.onclick = () => modal({
+        title: 'Daemon update', subtitle: `Installed v${upd.current_version} · latest v${upd.latest_version}`,
+        body: `<p class="small muted" style="line-height:1.65">${esc((upd.release_notes || upd.notes || 'A newer daemon build is published. Update the agent on each host with your normal package workflow.'))}</p>`,
+        footer: `<button class="btn" data-close>Close</button>`,
+        onMount(w, close) { w.querySelector('[data-close]').onclick = close; }
+      });
+
+      const applyName = document.getElementById('nd-appname-set');
+      if (applyName) applyName.onclick = async () => {
+        const appName = document.getElementById('nd-appname').value.trim();
+        if (!appName) return toast('Enter an app name first', 'err');
+        try {
+          const res = await API.post('/api/admin/nodes/mass-action', { action: 'set_app_name', app_name: appName });
+          toast(res.message || 'App name applied', 'ok');
+        } catch (e) { toast(e.message, 'err'); }
+      };
+      const fleetRestart = document.getElementById('nd-fleet-restart');
+      if (fleetRestart) fleetRestart.onclick = () => confirmDialog({
+        title: 'Restart every daemon?', message: 'All nodes will restart their agent service. Servers keep running, but the panel loses telemetry for a few seconds.',
+        confirmLabel: 'Restart all', danger: false,
+        onConfirm: async () => {
+          try {
+            const res = await API.post('/api/admin/nodes/mass-action', { action: 'wings_service', service_action: 'restart', node_ids: list.map((n) => n.id) });
+            toast(res.message || 'Restart dispatched', 'ok');
+          } catch (e) { toast(e.message, 'err'); }
+        }
+      });
+
       document.querySelectorAll('[data-nodes-detail]').forEach((b) => b.onclick = () => {
         if (window.DKX.Views.admin.nodeDetail) window.DKX.Views.admin.nodeDetail(b.dataset.nodesDetail);
       });

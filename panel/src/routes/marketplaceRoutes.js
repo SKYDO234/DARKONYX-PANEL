@@ -678,7 +678,6 @@ router.post('/tools/install-preset', authenticate, requireServerAccess('files.wr
 
 // ==========================================
 // McTools Blueprint Extension Endpoints
-// Source: https://github.com/nobita329/Nobita-Cloud/blob/main/thame/Extension/mctools.blueprint
 // ==========================================
 const MCTOOLS_DATA_DIR = path.join(__dirname, '../../public/data/mctools');
 const MCTOOLS_FILE_PATH = path.join(__dirname, '../../public/downloads/mctools.blueprint');
@@ -692,10 +691,8 @@ router.get('/mctools/info', (req, res) => {
       description: 'Helpful tools for Minecraft servers: MOTD builder, color picker, IDs directory, small text font styler, and emojis.',
       version: '1.0.1',
       target: 'beta-2024-12',
-      author: 'towsifkafi',
-      maintainer: 'nobita.dev',
-      sourceUrl: 'https://github.com/nobita329/Nobita-Cloud/blob/main/thame/Extension/mctools.blueprint',
-      rawUrl: 'https://raw.githubusercontent.com/nobita329/Nobita-Cloud/main/thame/Extension/mctools.blueprint',
+      author: 'DARKONYX',
+      maintainer: 'DARKONYX PANEL',
       downloadUrl: '/downloads/mctools.blueprint',
       type: 'blueprint_extension',
       sizeBytes: fs.existsSync(MCTOOLS_FILE_PATH) ? fs.statSync(MCTOOLS_FILE_PATH).size : 360432

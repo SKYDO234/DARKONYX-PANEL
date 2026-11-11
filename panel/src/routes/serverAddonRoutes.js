@@ -406,7 +406,7 @@ router.get('/databases/:dbId/export', authenticate, requireServerAccess('databas
       return res.status(404).json({ success: false, error: 'Database not found.' });
     }
 
-    const dumpContent = `-- DARKONYX PANEL & Arix Database Backup Export\n-- Database: \`${db.database_name}\`\n-- Generated: ${new Date().toISOString()}\n\nSET FOREIGN_KEY_CHECKS=0;\n\n-- Schema & Data Export\n\nSET FOREIGN_KEY_CHECKS=1;\n`;
+    const dumpContent = `-- DARKONYX PANEL Database Backup Export\n-- Database: \`${db.database_name}\`\n-- Generated: ${new Date().toISOString()}\n\nSET FOREIGN_KEY_CHECKS=0;\n\n-- Schema & Data Export\n\nSET FOREIGN_KEY_CHECKS=1;\n`;
 
     res.setHeader('Content-Type', 'application/sql');
     res.setHeader('Content-Disposition', `attachment; filename="${db.database_name}-${Date.now()}.sql"`);

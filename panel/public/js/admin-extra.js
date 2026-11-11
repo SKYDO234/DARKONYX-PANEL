@@ -23,11 +23,19 @@
       size: 'wide',
       body: `<div class="tabs" id="nd-tabs">
           <button class="tab active" data-ndt="0">Live stats</button>
+          <button class="tab" data-ndt="4">Wings stats</button>
+          <button class="tab" data-ndt="5">Allocations</button>
+          <button class="tab" data-ndt="6">Servers</button>
+          <button class="tab" data-ndt="7">Backups</button>
           <button class="tab" data-ndt="1">Firewall</button>
           <button class="tab" data-ndt="2">Service</button>
           <button class="tab" data-ndt="3">Logs</button>
         </div>
         <div class="mt-14" data-ndp="0"><div id="nd-stats">${window.el.skeleton(4)}</div></div>
+        <div class="mt-14 hidden" data-ndp="4"><div id="nd-wings">${window.el.skeleton(4)}</div></div>
+        <div class="mt-14 hidden" data-ndp="5"><div id="nd-alloc">${window.el.skeleton(4)}</div></div>
+        <div class="mt-14 hidden" data-ndp="6"><div id="nd-srv">${window.el.skeleton(3)}</div></div>
+        <div class="mt-14 hidden" data-ndp="7"><div id="nd-bak">${window.el.skeleton(3)}</div></div>
         <div class="mt-14 hidden" data-ndp="1"><div id="nd-fw">${window.el.skeleton(3)}</div></div>
         <div class="mt-14 hidden" data-ndp="2">
           <div class="row wrap gap-8">
@@ -119,6 +127,153 @@
           title: 'Reboot the host?', message: 'Every server on this node will be terminated.', confirmLabel: 'Reboot host',
           onConfirm: async () => { await API.post(`/api/admin/nodes/${nodeId}/reboot-vps`); toast('Reboot signal sent', 'warn'); }
         });
+
+        /* ---- Wings stats: daemon + system + docker + top processes ---- */
+        API.get(`/api/admin/nodes/${nodeId}/wings-stats`).then((r) => {
+          const sy = r.system || {}, dm = r.daemon || {}, dk = r.docker || {}, wv = r.wingsStatus || {};
+          const cpu = sy.cpu || {}, mem = sy.memory || {}, dsk = sy.disk || {};
+          const procs = r.topProcesses || [];
+          const memPct = mem.percent != null ? Number(mem.percent) : (mem.total_mb ? mem.used_mb / mem.total_mb * 100 : 0);
+          wrap.querySelector('#nd-wings').innerHTML = `
+            <div class="three-col">
+              <div class="stat"><div class="stat-top">${I('cpu')} CPU</div>
+                <div class="stat-value">${Math.round(Number(cpu.usage_percent || 0))}<small>%</small></div>
+                <div class="stat-foot">${esc(cpu.count || '—')} cores${cpu.model ? ' · ' + esc(String(cpu.model).slice(0, 28)) : ''}</div>
+                <div class="mt-8">${window.el.meter(Number(cpu.usage_percent || 0), Number(cpu.usage_percent || 0) > 85 ? 'danger' : '')}</div></div>
+              <div class="stat"><div class="stat-top">${I('memory')} Memory</div>
+                <div class="stat-value" style="font-size:20px">${esc(fmt.mb(mem.used_mb))}</div>
+                <div class="stat-foot">of ${esc(fmt.mb(mem.total_mb))} · ${esc(fmt.mb(mem.free_mb))} free</div>
+                <div class="mt-8">${window.el.meter(memPct, 'live')}</div></div>
+              <div class="stat"><div class="stat-top">${I('disk')} Disk</div>
+                <div class="stat-value" style="font-size:20px">${esc(dsk.used_gb != null ? dsk.used_gb + ' GB' : fmt.mb(dsk.used_mb))}</div>
+                <div class="stat-foot">of ${esc(dsk.total_gb != null ? dsk.total_gb + ' GB' : fmt.mb(dsk.total_mb))}</div>
+                <div class="mt-8">${window.el.meter(Number(dsk.percent || 0), 'blue')}</div></div>
+            </div>
+            <div class="card mt-14"><div class="card-body">
+              <div class="kv"><span class="k">Daemon</span><span class="v"><span class="chip ${dm.status === 'running' ? 'chip-live' : 'chip-warn'}">${esc(dm.status || 'unknown')}</span> <span class="mono tiny dim">v${esc(dm.version || '—')}</span></span></div>
+              <div class="kv"><span class="k">Service</span><span class="v mono">${esc(dm.service || '—')}</span></div>
+              <div class="kv"><span class="k">PID</span><span class="v mono">${esc(dm.pid || '—')}</span></div>
+              <div class="kv"><span class="k">Started</span><span class="v">${dm.started_at ? esc(fmt.date(dm.started_at)) : '—'}</span></div>
+              <div class="kv"><span class="k">OS / Kernel</span><span class="v mono tiny">${esc(sy.os || '—')} · ${esc(String(sy.kernel || '').slice(0, 24))}</span></div>
+              <div class="kv"><span class="k">Uptime</span><span class="v">${esc(fmt.uptime(sy.uptime_seconds || 0))}</span></div>
+              <div class="kv"><span class="k">Load average</span><span class="v mono">${esc(Array.isArray(sy.load_avg) ? sy.load_avg.join('  ') : (sy.load_avg || '—'))}</span></div>
+              <div class="kv"><span class="k">Docker</span><span class="v">${dk.available === false ? '<span class="chip chip-warn">not available</span>' : `<span class="mono tiny">${esc(dk.version || 'running')}</span> · ${esc(dk.containers_running != null ? dk.containers_running + ' containers' : '')}`}</span></div>
+            </div></div>
+            ${procs.length ? `<div class="card mt-14"><div class="card-head"><div class="grow"><h3>Top processes</h3>
+              <div class="card-sub">Highest CPU consumers on the node right now</div></div></div>
+              <div class="table-wrap"><table class="data"><thead><tr><th>PID</th><th>Process</th><th>CPU</th><th>Memory</th></tr></thead>
+              <tbody>${procs.slice(0, 8).map((p2) => `<tr><td class="mono tiny">${esc(p2.pid || '—')}</td>
+                <td class="mono tiny">${esc(String(p2.name || p2.command || '—').slice(0, 42))}</td>
+                <td class="mono tiny">${esc(p2.cpu != null ? p2.cpu + '%' : '—')}</td>
+                <td class="mono tiny">${esc(p2.mem != null ? p2.mem + '%' : '—')}</td></tr>`).join('')}</tbody></table></div></div>` : ''}`;
+        }).catch((e) => { wrap.querySelector('#nd-wings').innerHTML = `<p class="dim small">${esc(e.message)}</p>`; });
+
+        /* ---- Allocations: list, add ports/ranges, clear unassigned ---- */
+        const paintAlloc = async () => {
+          const box = wrap.querySelector('#nd-alloc');
+          try {
+            const r = await API.get('/api/admin/network');
+            const all = (r.allocations || []).filter((a) => String(a.node_id) === String(nodeId));
+            const free = all.filter((a) => !a.assigned).length;
+            box.innerHTML = `
+              <div class="row wrap gap-8" style="align-items:center">
+                <span class="chip chip-live">${all.length - free} assigned</span>
+                <span class="chip">${free} free</span>
+                <span class="grow"></span>
+                <button class="btn btn-sm btn-danger" id="nd-alloc-clear">${I('trash')} Clear unassigned</button>
+              </div>
+              ${all.length ? `<div class="table-wrap mt-8" style="max-height:280px;overflow:auto"><table class="data">
+                <thead><tr><th>IP</th><th>Alias</th><th>Port</th><th>Assigned to</th><th></th></tr></thead>
+                <tbody>${all.map((a) => `<tr>
+                  <td class="mono tiny">${esc(a.ip)}</td>
+                  <td class="mono tiny dim">${esc(a.ip_alias || '—')}</td>
+                  <td class="mono tiny">${esc(a.port)}</td>
+                  <td>${a.assigned && a.server_name ? `<span class="chip chip-info">${esc(a.server_name)}</span>` : '<span class="dim tiny">free</span>'}</td>
+                  <td><div class="cell-actions">${a.assigned ? '' : `<button class="btn btn-xs btn-ghost" data-allocdel="${a.id}">${I('trash')}</button>`}</div></td>
+                </tr>`).join('')}</tbody></table></div>`
+                : '<p class="dim small">No allocations on this node yet.</p>'}
+              <div class="card mt-14"><div class="card-body">
+                <div class="section-label">Assign new allocations</div>
+                <div class="row wrap gap-8 mt-8">
+                  <input class="input" id="nd-al-ip" placeholder="IP address" value="${esc((node && node.fqdn) || '0.0.0.0')}" style="max-width:170px" />
+                  <input class="input" id="nd-al-alias" placeholder="IP alias (optional)" style="max-width:160px" />
+                  <input class="input" id="nd-al-ports" placeholder="25565-25575 or 25565,25566" style="max-width:220px" />
+                  <button class="btn btn-sm btn-primary" id="nd-al-add">${I('plus')} Add ports</button>
+                </div>
+                <p class="dim tiny mt-8">Enter individual ports separated by commas, or a range with a dash (max 500 per batch).</p>
+              </div></div>`;
+
+            box.querySelectorAll('[data-allocdel]').forEach((b) => b.onclick = () => confirmDialog({
+              title: 'Delete allocation?', message: 'This frees the port permanently.', confirmLabel: 'Delete',
+              onConfirm: async () => { await API.del(`/api/admin/nodes/${nodeId}/allocations/${b.dataset.allocdel}`); paintAlloc(); }
+            }));
+            box.querySelector('#nd-alloc-clear').onclick = () => confirmDialog({
+              title: 'Clear unassigned allocations?', message: `All ${free} free ports on this node will be removed. Assigned ports are kept.`, confirmLabel: 'Clear',
+              onConfirm: async () => { await API.del(`/api/admin/nodes/${nodeId}/allocations-clear-unassigned`); toast('Unassigned allocations cleared', 'ok'); paintAlloc(); }
+            });
+            box.querySelector('#nd-al-add').onclick = async () => {
+              const ip = box.querySelector('#nd-al-ip').value.trim() || '0.0.0.0';
+              const alias = box.querySelector('#nd-al-alias').value.trim();
+              const spec = box.querySelector('#nd-al-ports').value.trim();
+              if (!spec) return toast('Enter at least one port', 'err');
+              const range = spec.match(/^(\d+)\s*-\s*(\d+)$/);
+              const body = range
+                ? { ip, ip_alias: alias, startPort: Number(range[1]), endPort: Number(range[2]) }
+                : { ip, ip_alias: alias, ports: spec.split(/[,\s]+/).filter(Boolean) };
+              try {
+                const res = await API.post(`/api/admin/nodes/${nodeId}/allocations`, body);
+                toast(res.message || 'Allocations added', 'ok');
+                if (alias) { try { await API.put(`/api/admin/nodes/${nodeId}/allocations/alias`, { ip, ip_alias: alias }); } catch (e2) {} }
+                paintAlloc();
+              } catch (e2) { toast(e2.message, 'err'); }
+            };
+          } catch (e) { box.innerHTML = `<p class="dim small">${esc(e.message)}</p>`; }
+        };
+        paintAlloc();
+
+        /* ---- Servers hosted on this node ---- */
+        API.get('/api/servers').then((r) => {
+          const list = (r.servers || []).filter((s2) => String(s2.node_id) === String(nodeId));
+          const box = wrap.querySelector('#nd-srv');
+          box.innerHTML = list.length ? `<div class="table-wrap"><table class="data">
+            <thead><tr><th>Server</th><th>Owner</th><th>Port</th><th>Memory</th><th>Status</th><th></th></tr></thead>
+            <tbody>${list.map((s2) => `<tr>
+              <td><div class="row gap-8" style="align-items:center"><span class="srv-icon" style="width:26px;height:26px;flex-basis:26px">${I('server')}</span>
+                <div><b>${esc(s2.name)}</b><div class="dim tiny mono">${esc(String(s2.uuid || '').slice(0, 8))}</div></div></div></td>
+              <td class="tiny">${esc(s2.owner_username || s2.owner_email || '—')}</td>
+              <td class="mono tiny">${s2.ip ? esc(s2.ip + ':' + s2.port) : '—'}</td>
+              <td class="tiny">${esc(fmt.mb(s2.memory_mb || 0))}</td>
+              <td>${window.el.statusChip ? window.el.statusChip(s2.status) : `<span class="chip">${esc(s2.status || 'offline')}</span>`}</td>
+              <td><div class="cell-actions"><a class="btn btn-xs" href="#/server/${s2.id}/console">${I('external')} Open</a></div></td>
+            </tr>`).join('')}</tbody></table></div>`
+            : '<p class="dim small">No servers are hosted on this node yet.</p>';
+        }).catch((e) => { wrap.querySelector('#nd-srv').innerHTML = `<p class="dim small">${esc(e.message)}</p>`; });
+
+        /* ---- Node backups ---- */
+        const paintBak = async () => {
+          const box = wrap.querySelector('#nd-bak');
+          try {
+            const r = await API.get(`/api/admin/nodes/${nodeId}/backups`);
+            const list = r.backups || [], cfg2 = r.config || {};
+            box.innerHTML = `
+              <div class="row wrap gap-8">
+                <span class="chip chip-info">${list.length} backup(s)</span>
+                <span class="chip">Storage: ${esc(cfg2.storage_backend || 'local')}</span>
+                <span class="chip">Retention: ${esc(cfg2.retention_days || '—')} days</span>
+              </div>
+              ${list.length ? `<div class="table-wrap mt-8"><table class="data">
+                <thead><tr><th>Name</th><th>Server</th><th>Size</th><th>Created</th><th></th></tr></thead>
+                <tbody>${list.map((b2) => `<tr>
+                  <td><b class="small">${esc(b2.name || b2.file_name || 'backup')}</b></td>
+                  <td class="tiny">${esc(b2.server_name || b2.server_id || '—')}</td>
+                  <td class="mono tiny">${esc(b2.file_size ? fmt.bytes(b2.file_size) : (b2.size ? fmt.bytes(b2.size) : '—'))}</td>
+                  <td class="tiny dim">${esc(b2.created_at ? fmt.date(b2.created_at) : '—')}</td>
+                  <td><div class="cell-actions">${b2.server_id ? `<a class="btn btn-xs btn-ghost" href="#/server/${b2.server_id}/backups">${I('external')} Manage</a>` : ''}</div></td>
+                </tr>`).join('')}</tbody></table></div>`
+                : '<p class="dim small">No backups recorded for servers on this node yet.</p>'}`;
+          } catch (e) { box.innerHTML = `<p class="dim small">${esc(e.message)}</p>`; }
+        };
+        paintBak();
 
         API.get(`/api/admin/nodes/${nodeId}/logs`).then((r) => {
           const text = typeof r === 'string' ? r : (r.logs || r.output || r.data || JSON.stringify(r, null, 2));
