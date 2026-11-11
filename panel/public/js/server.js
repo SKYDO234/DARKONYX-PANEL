@@ -6,6 +6,8 @@
   const { esc, fmt, API, Store, toast, modal, confirmDialog, emptyState, meter, statusChip } = window.el;
   const { serverAddress, typeLabel } = window.DKX.Views.portal;
 
+  const POWER_LABEL = { start: 'Start', restart: 'Restart', stop: 'Stop', kill: 'Force stop' };
+
   const TABS = [
     { id: 'console', label: 'Console', icon: 'terminal' },
     { id: 'files', label: 'Files', icon: 'folder' },
@@ -105,58 +107,74 @@
 
     const suspended = !!s.is_suspended;
     host.innerHTML = `
-      <div class="card card-pad" style="padding:18px 20px">
-        <div class="row wrap gap-14">
-          <div class="srv-icon" style="width:46px;height:46px;flex-basis:46px">${I('box')}</div>
-          <div class="grow" style="min-width:180px">
-            <div class="row gap-8 wrap"><h2 style="font-size:19px">${esc(s.name)}</h2><span id="srv-status-chip">${statusChip(suspended ? 'suspended' : s.status)}</span></div>
-            <div class="row gap-8 wrap tiny dim mt-8">
+      <div class="srv-head" id="srv-head">
+        <div class="srv-head-id">
+          <div class="srv-icon" style="width:42px;height:42px;flex-basis:42px">${I('box')}</div>
+          <div class="grow" style="min-width:0">
+            <div class="row gap-8 wrap"><h2 class="srv-title" title="${esc(s.name)}">${esc(s.name)}</h2><span id="srv-status-chip">${statusChip(suspended ? 'suspended' : s.status)}</span></div>
+            <div class="row gap-8 wrap tiny dim mt-6 srv-meta">
               <span>${esc(typeLabel(s.server_type))}</span><span>·</span>
               <span class="mono">${esc(serverAddress(s))}</span><span>·</span>
               <span>${esc(s.node_name || 'local node')}</span>
               ${s.jar_type ? `<span>·</span><span>${esc(s.jar_type)} ${esc(s.jar_version || '')}</span>` : ''}
             </div>
           </div>
-          <div class="row gap-8 wrap">
-            <div class="power-group">
-              <button class="power-btn start" data-pw="start" ${suspended ? 'disabled' : ''} title="Start">${I('play')}</button>
-              <button class="power-btn restart" data-pw="restart" ${suspended ? 'disabled' : ''} title="Restart">${I('restart')}</button>
-              <button class="power-btn stop" data-pw="stop" title="Stop">${I('stop')}</button>
-              <button class="power-btn kill" data-pw="kill" title="Force kill">${I('skull')}</button>
-            </div>
-            <a class="btn btn-sm" href="#/portal/servers">${I('chevronLeft')} All servers</a>
+        </div>
+        <div class="srv-live" id="live-strip">
+          ${[
+        ['cpu', 'CPU'], ['memory', 'RAM'], ['disk', 'Disk'], ['uptime', 'Uptime']
+      ].map(([key, label]) => `<div class="srv-live-cell">
+              <span class="srv-live-k">${label}</span><b class="mono srv-live-v" id="ls-${key}-v">—</b>
+              <div id="ls-${key}-b" class="srv-live-bar">${meter(0)}</div></div>`).join('')}
+        </div>
+        <div class="srv-tabs-row">
+          <div class="tabs srv-tabs" id="srv-tabs" role="tablist">
+            ${TABS.map((t) => `<button class="tab ${t.id === tab ? 'active' : ''}" data-tab="${t.id}" role="tab" aria-selected="${t.id === tab}">${I(t.icon)} <span>${t.label}</span></button>`).join('')}
           </div>
         </div>
-        ${suspended ? `<div class="banner-strip mt-14" style="border-color:rgba(251,113,133,.35);background:linear-gradient(100deg,rgba(251,113,133,.16),transparent)">${I('alert')}<span>This server is suspended${s.expiration_date ? ` (expired ${esc(fmt.date(s.expiration_date, false))})` : ''}. Power actions are disabled until an administrator renews it.</span></div>` : ''}
-        <div class="row gap-14 mt-14 wrap" id="live-strip">
-          ${[
-        ['CPU', 'cpu', '%'], ['Memory', 'memory', 'MB'], ['Disk', 'disk', 'MB'], ['Uptime', 'uptime', '']
-      ].map(([label, key]) => `<div class="row gap-8" style="flex:1;min-width:150px">
-            <div class="grow"><div class="row tiny dim" style="justify-content:space-between"><span>${label}</span><b class="mono" id="ls-${key}-v">—</b></div>
-            <div class="mt-8" id="ls-${key}-b">${meter(0)}</div></div></div>`).join('')}
-        </div>
       </div>
 
-      <div class="tabs mt-14" id="srv-tabs">
-        ${TABS.map((t) => `<button class="tab ${t.id === tab ? 'active' : ''}" data-tab="${t.id}">${I(t.icon)} ${t.label}</button>`).join('')}
+      ${suspended ? `<div class="banner-strip mt-14" style="border-color:rgba(251,113,133,.35);background:linear-gradient(100deg,rgba(251,113,133,.16),transparent)">${I('alert')}<span>This server is suspended${s.expiration_date ? ` (expired ${esc(fmt.date(s.expiration_date, false))})` : ''}. Power actions are disabled until an administrator renews it.</span></div>` : ''}
+
+      <div class="power-bar" id="power-bar">
+        <div class="power-group" role="group" aria-label="Server power">
+          <button class="power-btn start" data-pw="start" ${suspended ? 'disabled' : ''} title="Start server"><span class="power-ico">${I('play')}</span><span class="power-label">Start</span></button>
+          <button class="power-btn restart" data-pw="restart" ${suspended ? 'disabled' : ''} title="Restart server"><span class="power-ico">${I('restart')}</span><span class="power-label">Restart</span></button>
+          <button class="power-btn stop" data-pw="stop" ${suspended ? 'disabled' : ''} title="Stay-stopped: graceful shutdown"><span class="power-ico">${I('stop')}</span><span class="power-label">Stop</span></button>
+          <button class="power-btn kill" data-pw="kill" ${suspended ? 'disabled' : ''} title="Force stop: terminate the process immediately"><span class="power-ico">${I('skull')}</span><span class="power-label">Force stop</span></button>
+        </div>
+        <div class="power-hint" id="power-hint">${suspended ? 'Power actions disabled while suspended' : 'Ready'}</div>
+        <a class="btn btn-sm btn-ghost power-back" href="#/portal/servers">${I('chevronLeft')} All servers</a>
       </div>
-      <div id="srv-tab-body" class="mt-14"></div>`;
+
+      <div id="srv-tab-body" class="srv-tab-body mt-14"></div>`;
 
     host.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => { location.hash = `#/server/${id}/${b.dataset.tab}`; });
+    // the tab strip is wider than a phone: keep the active tab in view
+    const activeTab = host.querySelector('#srv-tabs .tab.active');
+    if (activeTab && activeTab.scrollIntoView) {
+      try { activeTab.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) { /* older engines */ }
+    }
+    const hint = host.querySelector('#power-hint');
     const power = async (action) => {
+      const label = POWER_LABEL[action] || action;
+      if (hint) hint.textContent = `${label} requested…`;
       try {
-        await API.post(`/api/servers/${id}/power`, { action });
-        toast(`${action[0].toUpperCase() + action.slice(1)} signal sent`, 'ok', 'Power action');
+        const r = await API.post(`/api/servers/${id}/power`, { action });
+        toast(r.message || `${label} requested`, 'ok', 'Power action');
         updateStatus(action === 'stop' || action === 'kill' ? 'stopping' : 'starting');
-      } catch (e) { toast(e.message, 'err'); }
+      } catch (e) {
+        if (hint) hint.textContent = e.message;
+        toast(e.message, 'err');
+      }
     };
     host.querySelectorAll('[data-pw]').forEach((b) => b.onclick = () => {
       const action = b.dataset.pw;
       if (action === 'kill') {
         return window.el.confirmDialog({
-          title: 'Force kill server?',
-          message: 'The process is terminated immediately — unsaved world data can be lost. Use only when the server is unresponsive.',
-          confirmLabel: 'Force kill',
+          title: 'Force stop the server?',
+          message: 'The process is terminated immediately with SIGKILL — unsaved world data can be lost. Use only when the server is unresponsive.',
+          confirmLabel: 'Force stop',
           onConfirm: () => power('kill')
         });
       }
@@ -431,7 +449,7 @@
       const rows = [];
       online.forEach((p) => rows.push({ ...p, online: true }));
       known.forEach((p) => { if (!onlineNames.has(p.name)) rows.push({ ...p, online: false }); });
-      document.getElementById('pl-body').innerHTML = rows.length ? `
+      (document.getElementById('pl-body') || {}).innerHTML = rows.length ? `
         <div class="table-wrap"><table class="data">
           <thead><tr><th>Player</th><th>State</th><th>Playtime / Last seen</th><th></th></tr></thead>
           <tbody>${rows.map((p) => `<tr>
@@ -451,7 +469,7 @@
         catch (e) { toast(e.message, 'err'); }
       });
     } catch (e) {
-      document.getElementById('pl-body').innerHTML = emptyState('info', 'Player list unavailable', e.message);
+      (document.getElementById('pl-body') || {}).innerHTML = emptyState('info', 'Player list unavailable', e.message);
     }
   }
 
@@ -461,12 +479,14 @@
       <div class="card-head"><div class="grow"><h3>Worlds</h3><div class="card-sub">Activate, clone, reset or download world folders</div></div>
         <button class="btn btn-sm" id="w-refresh">${I('refresh')}</button></div>
       <div id="w-body">${window.el.skeleton(4)}</div></div>`;
+    const wBody = () => document.getElementById('w-body');
     const paint = async () => {
       try {
         const r = await API.get(`/api/servers/${s.id}/worlds`);
         const worlds = r.worlds || [];
         const activeName = r.activeWorld;
-        document.getElementById('w-body').innerHTML = worlds.length ? `
+        const wb = wBody(); if (!wb) return; // tab switched away while loading
+        wb.innerHTML = worlds.length ? `
           <div class="table-wrap"><table class="data">
             <thead><tr><th>World</th><th>Size</th><th>Active</th><th>Modified</th><th></th></tr></thead>
             <tbody>${worlds.map((w) => `<tr>
@@ -492,9 +512,10 @@
           title: `Delete ${b.dataset.del}?`, message: 'The world folder will be permanently removed from disk.', confirmLabel: 'Delete',
           onConfirm: async () => { await API.post(`/api/servers/${s.id}/worlds/delete`, { worldName: b.dataset.del }); toast('World deleted', 'ok'); paint(); }
         }));
-      } catch (e) { document.getElementById('w-body').innerHTML = emptyState('info', 'Worlds unavailable', e.message); }
+      } catch (e) { const wb = wBody(); if (wb) wb.innerHTML = emptyState('info', 'Worlds unavailable', e.message); }
     };
-    document.getElementById('w-refresh').onclick = paint;
+    const wRefresh = document.getElementById('w-refresh');
+    if (wRefresh) wRefresh.onclick = paint;
     paint();
   }
 
@@ -508,7 +529,7 @@
       try {
         const r = await API.get(`/api/servers/${s.id}/backups`);
         const backups = r.backups || [];
-        document.getElementById('b-body').innerHTML = backups.length ? `
+        (document.getElementById('b-body') || {}).innerHTML = backups.length ? `
           <div class="table-wrap"><table class="data">
             <thead><tr><th>Name</th><th>Size</th><th>Type</th><th>Created</th><th></th></tr></thead>
             <tbody>${backups.map((b) => `<tr>
@@ -538,7 +559,7 @@
           title: 'Delete backup?', message: 'This permanently removes the archive from disk.', confirmLabel: 'Delete',
           onConfirm: async () => { await API.del(`/api/servers/${s.id}/backups/${b.dataset.del}`); toast('Backup deleted', 'ok'); paint(); }
         }));
-      } catch (e) { document.getElementById('b-body').innerHTML = emptyState('info', 'Backups unavailable', e.message); }
+      } catch (e) { (document.getElementById('b-body') || {}).innerHTML = emptyState('info', 'Backups unavailable', e.message); }
     };
     const create = async () => {
       try { toast('Creating backup — this can take a moment…', 'info'); await API.post(`/api/servers/${s.id}/backups`, { name: `manual-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}` }); toast('Backup created', 'ok'); paint(); }
@@ -559,7 +580,7 @@
       try {
         const r = await API.get(`/api/servers/${s.id}/schedules`);
         const list = r.schedules || [];
-        document.getElementById('sc-body').innerHTML = list.length ? `
+        (document.getElementById('sc-body') || {}).innerHTML = list.length ? `
           <div class="table-wrap"><table class="data">
             <thead><tr><th>Name</th><th>Cron</th><th>Action</th><th>Active</th><th>Last run</th><th></th></tr></thead>
             <tbody>${list.map((x) => `<tr>
@@ -581,7 +602,7 @@
           title: 'Delete schedule?', message: 'This schedule will stop running immediately.', confirmLabel: 'Delete',
           onConfirm: async () => { await API.del(`/api/servers/${s.id}/schedules/${b.dataset.del}`); paint(); }
         }));
-      } catch (e) { document.getElementById('sc-body').innerHTML = emptyState('info', 'Schedules unavailable', e.message); }
+      } catch (e) { (document.getElementById('sc-body') || {}).innerHTML = emptyState('info', 'Schedules unavailable', e.message); }
     };
     document.getElementById('sc-add').onclick = () => {
       window.el.modal({
@@ -627,7 +648,7 @@
     try {
       const r = await API.get(`/api/servers/${s.id}/network`);
       const allocs = r.allocations || r.network || [];
-      document.getElementById('net-body').innerHTML = allocs.length ? `<div class="table-wrap"><table class="data">
+      (document.getElementById('net-body') || {}).innerHTML = allocs.length ? `<div class="table-wrap"><table class="data">
         <thead><tr><th>IP</th><th>Port</th><th>Primary</th><th></th></tr></thead>
         <tbody>${allocs.map((a) => `<tr><td class="mono">${esc(a.ip)}</td><td class="mono">${esc(a.port)}</td>
           <td>${Number(a.id) === Number(s.allocation_id) ? '<span class="chip chip-live">Primary</span>' : '<span class="chip">Secondary</span>'}</td>
@@ -637,7 +658,7 @@
         try { await API.post(`/api/servers/${s.id}/network/primary`, { allocationId: b.dataset.primary }); toast('Primary allocation updated', 'ok'); window.DKX.Router.resolve(); }
         catch (e) { toast(e.message, 'err'); }
       });
-    } catch (e) { document.getElementById('net-body').innerHTML = emptyState('info', 'Network unavailable', e.message); }
+    } catch (e) { (document.getElementById('net-body') || {}).innerHTML = emptyState('info', 'Network unavailable', e.message); }
   }
 
   /* --------------------------------------------------------------- subusers */
@@ -651,7 +672,7 @@
       try {
         const r = await API.get(`/api/servers/${s.id}/subusers`);
         const subs = r.subusers || [];
-        document.getElementById('su-body').innerHTML = subs.length ? `<div class="table-wrap"><table class="data">
+        (document.getElementById('su-body') || {}).innerHTML = subs.length ? `<div class="table-wrap"><table class="data">
           <thead><tr><th>User</th><th>Email</th><th>Permissions</th><th></th></tr></thead>
           <tbody>${subs.map((u) => `<tr>
             <td><b>${esc(u.username)}</b></td><td class="dim">${esc(u.email)}</td>
@@ -663,7 +684,7 @@
           title: 'Remove sub-user?', message: 'They will immediately lose access to this server.', confirmLabel: 'Remove',
           onConfirm: async () => { await API.del(`/api/servers/${s.id}/subusers/${b.dataset.del}`); paint(); }
         }));
-      } catch (e) { document.getElementById('su-body').innerHTML = emptyState('info', 'Sub-users unavailable', e.message); }
+      } catch (e) { (document.getElementById('su-body') || {}).innerHTML = emptyState('info', 'Sub-users unavailable', e.message); }
     };
     document.getElementById('su-add').onclick = () => {
       window.el.modal({

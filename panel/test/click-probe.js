@@ -20,6 +20,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const w = dom.window, d = w.document;
   w.fetch = (u, o) => fetch(u.startsWith('http') ? u : BASE + u, o);
   w.WebSocket = class { constructor() { this.readyState = 3; } send() {} close() {} };
+  // jsdom has no object URLs / clipboard; without these stubs every copy or
+  // download button reports a fake failure that a real browser never sees
+  if (w.URL) {
+    w.URL.createObjectURL = () => 'blob:darkonyx-stub';
+    w.URL.revokeObjectURL = () => {};
+  }
+  w.navigator.clipboard = w.navigator.clipboard || {};
+  if (!w.navigator.clipboard.writeText) w.navigator.clipboard.writeText = () => Promise.resolve();
   const errors = [];
   w.addEventListener('error', (e) => errors.push('window.error: ' + e.message));
   w.addEventListener('unhandledrejection', (e) => errors.push('rejection: ' + ((e.reason && e.reason.message) || e.reason)));
@@ -50,6 +58,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     for (const el of targets) {
       const label = (el.textContent || el.id || el.tagName).trim().slice(0, 34).replace(/\s+/g, ' ');
       if (/^(delete|remove|wipe|kill|reboot)/i.test(label)) continue; // destructive/dialog-driven
+      // a click that navigates re-renders the view, so every later target in
+      // this snapshot is detached — a user could not click those either
+      if (el.isConnected === false) continue;
+      // clicking the tab you are already on is legitimately inert
+      if (el.classList.contains('active')) continue;
       const h0 = w.location.hash;
       const inner0 = (d.querySelector('#view-inner') || {}).innerHTML || '';
       // a re-render that produces identical markup is still a response, so watch

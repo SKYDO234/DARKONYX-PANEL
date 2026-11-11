@@ -141,6 +141,28 @@ console.log('\n--- design-system coverage ---');
   ok('every class used by the UI has a stylesheet rule', missing.length === 0, missing.join(' ') || `${used.size} classes`);
 }
 
+/* ---------------------- 3b. server workspace chrome is laid out right ---- */
+console.log('\n--- server workspace chrome ---');
+{
+  const js = fs.readFileSync(PATH.join(PANEL, 'public/js/server.js'), 'utf8');
+  // the tab strip must be the last row of the header and right-aligned; if it
+  // ever drifts back to a left-aligned strip above the content the user cannot
+  // reach Files / Settings without hunting
+  ok('tab strip is inside the workspace header', (() => {
+    const head = js.indexOf('class="srv-head"');
+    const tabs = js.indexOf('id="srv-tabs"');
+    const body = js.indexOf('id="srv-tab-body"');
+    return head > -1 && tabs > head && tabs < body;
+  })());
+  ok('tab strip is right-aligned', /\.srv-tabs-row\s*\{[^}]*justify-content:\s*flex-end/.test(CSS));
+  ok('power bar sits outside the tab body (visible on every tab)',
+    /id="power-bar"[\s\S]*id="srv-tab-body"/.test(js));
+  const labels = [...js.matchAll(/data-pw="(\w+)"[\s\S]*?power-label">([^<]+)</g)].map((m) => `${m[1]}:${m[2].trim()}`);
+  ok('power bar offers start / restart / stop / force stop', labels.length === 4 && /Force stop/.test(labels.join(' ')), labels.join(' '));
+  ok('force stop is labelled, not a bare skull icon', /power-label">Force stop</.test(js));
+  ok('sticky header is not inside an animated container', /:has\(\.srv-head\)/.test(CSS));
+}
+
 /* ------------------------------- 4. every script the page loads actually exists */
 console.log('\n--- asset wiring ---');
 {
