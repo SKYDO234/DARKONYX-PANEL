@@ -808,6 +808,10 @@
             <button class="btn btn-warn" id="dz-reinstall">${I('refresh')} Reinstall</button>
           </div>
           <div class="row wrap gap-14 mt-14" style="padding-top:14px;border-top:1px solid var(--line)">
+            <div class="grow"><b class="small">Re-run install</b><p class="dim small">Marks the server as installing so the daemon re-runs its install script on next boot.</p></div>
+            <button class="btn" id="dz-install">${I('package')} Toggle install</button>
+          </div>
+          <div class="row wrap gap-14 mt-14" style="padding-top:14px;border-top:1px solid var(--line)">
             <div class="grow"><b class="small">Delete server</b><p class="dim small">Destroys the server, its files, backups and allocations. This cannot be undone.</p></div>
             <button class="btn btn-danger" id="dz-delete">${I('trash')} Delete server</button>
           </div>
@@ -821,6 +825,15 @@
       ['memory_mb', 'cpu_limit', 'disk_mb'].forEach((k) => { if (data[k]) data[k] = Number(data[k]); else delete data[k]; });
       try { await API.put(`/api/servers/${s.id}`, data); toast('Server settings saved', 'ok'); window.DKX.Router.resolve(); }
       catch (err) { toast(err.message, 'err'); }
+    };
+
+    const installBtn = document.getElementById('dz-install');
+    if (installBtn) installBtn.onclick = async () => {
+      try {
+        const r = await API.post(`/api/admin/servers/${s.id}/toggle-install`);
+        toast(r.message || 'Install status toggled', 'ok');
+        window.DKX.Router.resolve();
+      } catch (err) { toast(err.message, 'err'); }
     };
 
     const envAdd = document.getElementById('env-add');

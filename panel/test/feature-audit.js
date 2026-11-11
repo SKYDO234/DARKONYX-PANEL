@@ -114,6 +114,10 @@ async function test(group, label, method, path, body, opts = {}) {
   await test('nodes', 'node backups', 'GET', '/api/admin/nodes/1/backups');
   await test('nodes', 'port detail', 'GET', '/api/admin/nodes/1/ports/25565/detail');
   await test('nodes', 'node updates', 'GET', '/api/admin/nodes/updates');
+  await test('nodes', 'set ip alias', 'PUT', '/api/admin/nodes/1/allocations/alias', { ip: '127.0.0.1', ip_alias: 'audit.example.com' });
+  await test('nodes', 'clear ip alias', 'PUT', '/api/admin/nodes/1/allocations/alias', { ip: '127.0.0.1', ip_alias: '' });
+  await test('nodes', 'mass action app name', 'POST', '/api/admin/nodes/mass-action', { action: 'set_app_name', app_name: 'DARKONYX PANEL' });
+  await test('nodes', 'mass action service', 'POST', '/api/admin/nodes/mass-action', { action: 'wings_service', service_action: 'restart', node_ids: [1] });
   if (nodeId) {
     await test('nodes', 'create allocations', 'POST', `/api/admin/nodes/${nodeId}/allocations`, { ip: '127.0.0.1', ports: '31000-31002' });
     await test('nodes', 'update node', 'PUT', `/api/admin/nodes/${nodeId}`, { name: 'Audit Node', memory_mb: 8192 });
@@ -140,6 +144,10 @@ async function test(group, label, method, path, body, opts = {}) {
     await new Promise(r => setTimeout(r, 1200));
     await test('servers', 'power kill', 'POST', `/api/servers/${sid}/power`, { action: 'kill' });
     await test('servers', 'suspend toggle', 'POST', `/api/servers/${sid}/suspend`, { suspended: false });
+    await test('admin-servers', 'bulk suspend', 'POST', '/api/admin/servers/bulk-suspend', { server_ids: [sid] });
+    await test('admin-servers', 'bulk unsuspend', 'POST', '/api/admin/servers/bulk-unsuspend', { server_ids: [sid] });
+    await test('admin-servers', 'toggle install', 'POST', `/api/admin/servers/${sid}/toggle-install`);
+    await test('admin-servers', 'toggle install back', 'POST', `/api/admin/servers/${sid}/toggle-install`);
     await test('servers', 'change version', 'POST', `/api/servers/${sid}/change-version`, { jar_type: 'purpur', jar_version: '1.21.4' });
     await test('servers', 'reinstall', 'POST', `/api/servers/${sid}/reinstall`);
 
