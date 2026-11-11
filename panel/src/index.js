@@ -70,6 +70,7 @@ async function bootstrap() {
   // Initialize DB & Seed
   await initDatabase();
   await seedDatabase();
+  require('./services/systemTelemetry').start();
   await scheduleService.initSchedules();
   await autoBackupService.initAutoBackupCron();
   autoSuspensionService.init();

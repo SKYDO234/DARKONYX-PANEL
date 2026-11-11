@@ -2,7 +2,27 @@
    DARKONYX PANEL — entry point
    ========================================================================== */
 (function () {
-  const { Store, API, toast } = window.el;
+  /* boot watchdog: if the runtime never came up (a blocked storage API, a
+     failed script, an old cached bundle) show a way out instead of a dead
+     splash screen that swallows every click. */
+  function bootFailed(why) {
+    const status = document.getElementById('boot-status');
+    const actions = document.getElementById('boot-actions');
+    if (status) status.textContent = why || 'the panel could not start';
+    if (actions) actions.style.display = '';
+    console.error('[DARKONYX] boot failed:', why);
+  }
+  window.addEventListener('DOMContentLoaded', () => {
+    setTimeout(() => {
+      if (!window.DKX || !window.el) {
+        bootFailed(window.el ? 'core runtime did not finish loading' : 'panel scripts did not load');
+      }
+    }, 6000);
+  });
+
+  if (!window.el) { bootFailed('core runtime did not load'); return; }
+
+  const { Store, API } = window.el;
   const Theme = () => window.DKX.Theme;
   const Auth = () => window.Auth;
 
@@ -27,6 +47,7 @@
 
     if (!Store.token) {
       window.Auth.renderLogin();
+      window.DKX.booted = true;
       return;
     }
 
@@ -38,6 +59,7 @@
     } catch (e) {
       Store.setToken(''); Store.setUser(null);
       window.Auth.renderLogin();
+      window.DKX.booted = true;
       return;
     }
 
@@ -48,6 +70,7 @@
     window.DKX.Shell.mount();
     window.DKX.Shell.syncUser();
     window.DKX.Router.start();
+    window.DKX.booted = true;
 
     // keep the sidebar live-metrics chip warm
     setInterval(async () => {

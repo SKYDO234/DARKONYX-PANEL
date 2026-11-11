@@ -4,33 +4,12 @@ const { query } = require('../database/db');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const { logActivity } = require('../services/activityService');
 const config = require('../config/config');
+const dockerService = require('../services/dockerService');
+const telemetry = require('../services/systemTelemetry');
+const panelVersion = require('../../package.json').version;
 const os = require('os');
 const fs = require('fs');
-
-let lastNet = { rx: 0, tx: 0, time: Date.now() };
-
-function getNetworkBytes() {
-  try {
-    const data = fs.readFileSync('/proc/net/dev', 'utf8');
-    const lines = data.split('\n');
-    let rx = 0, tx = 0;
-    for (const line of lines) {
-      if (line.includes(':') && !line.includes('lo:')) {
-        const parts = line.split(':')[1].trim().split(/\s+/);
-        rx += parseInt(parts[0], 10) || 0;
-        tx += parseInt(parts[8], 10) || 0;
-      }
-    }
-    return { rx, tx };
-  } catch (e) {
-    return { rx: 0, tx: 0 };
-  }
-}
-
-// Prime lastNet immediately
-const initialBytes = getNetworkBytes();
-lastNet.rx = initialBytes.rx;
-lastNet.tx = initialBytes.tx;
+const path = require('path');
 
 function getNodeLiveStats(node = null) {
   // 1. RAM Usage
@@ -39,54 +18,27 @@ function getNodeLiveStats(node = null) {
   const usedMem = Math.max(0, totalMem - freeMem);
   const memPercent = Math.min(100, Math.max(1, Math.round((usedMem / totalMem) * 100)));
 
-  // 2. CPU Usage
+  // 2. CPU Usage — one-second background sampler, so even the very first
+  //    request in a fresh process reports a real interval measurement.
+  const cpuPercent = telemetry.cpuPercent == null ? 0 : telemetry.cpuPercent;
   const cpus = os.cpus() || [];
-  let totalTick = 0;
-  let idleTick = 0;
-  cpus.forEach(cpu => {
-    for (const type in cpu.times) {
-      totalTick += cpu.times[type];
-    }
-    idleTick += cpu.times.idle;
-  });
-  const randomCpuJitter = Math.floor(Math.random() * 5) - 2;
-  const rawCpu = totalTick > 0 ? Math.round((1 - idleTick / totalTick) * 100) : 5;
-  const cpuPercent = Math.min(99, Math.max(2, rawCpu + randomCpuJitter));
   const loadAvg = os.loadavg();
 
-  // 3. SSD / Disk Usage
-  let ssdTotalGb = 100;
-  let ssdUsedGb = 25;
-  let ssdPercent = 25;
-  try {
-    const stat = fs.statfsSync(config.DATA_DIR || '/');
-    const totalBytes = stat.blocks * stat.bsize;
-    const freeBytes = stat.bfree * stat.bsize;
-    const usedBytes = Math.max(0, totalBytes - freeBytes);
-    ssdTotalGb = parseFloat((totalBytes / (1024 * 1024 * 1024)).toFixed(1));
-    ssdUsedGb = parseFloat((usedBytes / (1024 * 1024 * 1024)).toFixed(1));
-    ssdPercent = Math.min(100, Math.max(1, Math.round((usedBytes / totalBytes) * 100)));
-  } catch (err) {
-    if (node && node.disk_mb) {
-      ssdTotalGb = parseFloat((node.disk_mb / 1024).toFixed(1));
-      ssdUsedGb = parseFloat((ssdTotalGb * 0.35).toFixed(1));
-      ssdPercent = 35;
-    }
-  }
+  // 3. Disk usage — real statfs on the data volume. If the volume cannot be
+  //    read we report the capacity this node is configured with and an
+  //    explicit "not measured" marker instead of inventing numbers.
+  const disk = telemetry.diskUsage(config.DATA_DIR || '/');
+  let ssdTotalGb = parseFloat((disk.total_bytes / (1024 * 1024 * 1024)).toFixed(1));
+  let ssdUsedGb = parseFloat((disk.used_bytes / (1024 * 1024 * 1024)).toFixed(1));
+  let ssdPercent = disk.percent;
+  const ssdMeasured = disk.measured;
+  if (!ssdMeasured && node && node.disk_mb) ssdTotalGb = parseFloat((node.disk_mb / 1024).toFixed(1));
 
-  // 4. Network (Inbound & Outbound with real delta + live dynamic fluctuation)
-  const bytes = getNetworkBytes();
-  const now = Date.now();
-  const timeDelta = Math.max(0.5, (now - lastNet.time) / 1000);
-  const rxDelta = (bytes.rx - lastNet.rx) / timeDelta;
-  const txDelta = (bytes.tx - lastNet.tx) / timeDelta;
-  lastNet = { rx: bytes.rx, tx: bytes.tx, time: now };
-
-  // Realistic dynamic speeds for live monitor
-  const randomInBytes = (Math.random() * 2.5 + 1.1) * 1024 * 1024; // 1.1 - 3.6 MB/s
-  const randomOutBytes = (Math.random() * 3.8 + 2.2) * 1024 * 1024; // 2.2 - 6.0 MB/s
-  const effectiveIn = rxDelta > 2048 ? rxDelta : randomInBytes;
-  const effectiveOut = txDelta > 2048 ? txDelta : randomOutBytes;
+  // 4. Network — real /proc/net/dev deltas sampled once a second. A quiet
+  //    link reports ~0 B/s; inventing throughput made the monitor untrustworthy.
+  const net = telemetry.net;
+  const effectiveIn = net.measured ? net.rx_bytes_sec : 0;
+  const effectiveOut = net.measured ? net.tx_bytes_sec : 0;
 
   const formatSpeed = (b) => {
     if (b >= 1024 * 1024) return (b / (1024 * 1024)).toFixed(2) + ' MB/s';
@@ -102,8 +54,8 @@ function getNodeLiveStats(node = null) {
 
   return {
     cpu_percent: cpuPercent,
-    load_avg: (loadAvg[0] || 0.25).toFixed(2),
-    cores: cpus.length || 1,
+    load_avg: (loadAvg[0] || 0).toFixed(2),
+    cores: cpus.length,
 
     ram_used_mb: Math.round(usedMem / (1024 * 1024)),
     ram_total_mb: Math.round(totalMem / (1024 * 1024)),
@@ -113,11 +65,13 @@ function getNodeLiveStats(node = null) {
     ssd_total_gb: ssdTotalGb,
     ssd_free_gb: parseFloat(Math.max(0, ssdTotalGb - ssdUsedGb).toFixed(1)),
     ssd_percent: ssdPercent,
+    ssd_measured: ssdMeasured,
 
     net_in_speed: formatSpeed(effectiveIn),
     net_out_speed: formatSpeed(effectiveOut),
-    net_in_total: formatTotal(bytes.rx || 1024 * 1024 * 512),
-    net_out_total: formatTotal(bytes.tx || 1024 * 1024 * 128),
+    net_in_total: formatTotal(net.total_rx),
+    net_out_total: formatTotal(net.total_tx),
+    net_measured: net.measured,
 
     uptime_hours: (os.uptime() / 3600).toFixed(1),
     status: cpuPercent > 85 || memPercent > 85 ? 'warning' : 'optimal'
@@ -190,48 +144,55 @@ router.post('/', authenticate, requireAdmin, async (req, res) => {
   }
 });
 
-// Check Wings Daemon & Agent updates status
+// Daemon / agent version report
 router.get('/updates', authenticate, requireAdmin, async (req, res) => {
   try {
-    const pkg = require('../../package.json');
+    const os = require('os');
     res.json({
       success: true,
-      current_version: '1.11.8',
-      latest_version: '1.11.8',
-      update_available: false,
-      wingsDaemonVersion: 'v1.11.8',
-      wingsDaemonLatest: 'v1.11.8',
-      release_url: 'https://github.com/pterodactyl/wings/releases'
+      current_version: panelVersion,
+      daemon_mode: dockerService.isAvailable ? 'docker' : 'native-process',
+      docker_available: dockerService.isAvailable,
+      platform: `${os.type()} ${os.release()}`,
+      arch: os.arch(),
+      node_runtime: process.version,
+      process_uptime_seconds: Math.floor(process.uptime()),
+      host_uptime_seconds: Math.floor(os.uptime())
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// Mass Node Actions (Set App Name, Wings Service control)
+// Mass node actions. Only actions with a real implementation are accepted —
+// an endpoint that returns "dispatched" without doing anything is a lie.
 router.post('/mass-action', authenticate, requireAdmin, async (req, res) => {
   try {
-    const { action, app_name, service_action, node_ids } = req.body;
+    const { action, app_name, node_ids } = req.body;
 
     if (action === 'set_app_name') {
-      if (!app_name || app_name.trim().length === 0) {
+      if (!app_name || !String(app_name).trim()) {
         return res.status(400).json({ success: false, error: 'App name cannot be empty.' });
       }
-      await query.run(
-        'INSERT INTO settings (`key`, `value`, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE `value` = VALUES(`value`), updated_at = CURRENT_TIMESTAMP',
-        ['company_name', app_name.trim()]
-      );
-      logActivity(req.user.id, null, 'NODE_MASS_APPNAME', `Applied App Name "${app_name}" across nodes`, req);
-      return res.json({ success: true, message: `Applied App Name "${app_name}" to all selected nodes.` });
+      const ids = Array.isArray(node_ids) && node_ids.length ? node_ids.map(Number) : null;
+      if (ids) {
+        const rows = ids.map(() => '?').join(',');
+        await query.run(
+          'UPDATE nodes SET name = ? WHERE id IN (' + rows + ')',
+          [String(app_name).trim(), ...ids]
+        );
+      }
+      logActivity(req.user.id, null, 'NODE_MASS_RENAME', `Renamed ${ids ? ids.length : 'all'} node(s) to "${app_name}"`, req);
+      return res.json({
+        success: true,
+        message: ids ? `Renamed ${ids.length} node(s) to "${String(app_name).trim()}".` : 'No nodes selected — nothing changed.'
+      });
     }
 
-    if (action === 'wings_service' || ['start', 'restart', 'stop'].includes(action)) {
-      const targetServiceAction = service_action || action;
-      logActivity(req.user.id, null, 'NODE_MASS_SERVICE', `Wings service action: ${targetServiceAction}`, req);
-      return res.json({ success: true, message: `Successfully dispatched Wings service [${targetServiceAction.toUpperCase()}] to all nodes.` });
-    }
-
-    res.status(400).json({ success: false, error: 'Unknown mass action.' });
+    return res.status(400).json({
+      success: false,
+      error: `Unsupported mass action "${action}". Available: set_app_name.`
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -465,24 +426,50 @@ router.get('/:id/wings-stats', authenticate, requireAdmin, async (req, res) => {
         };
       });
     } catch (e) {
-      topProcesses = [
-        { user: 'root', pid: '1', cpu: 0.1, mem: 0.3, command: 'systemd / init' },
-        { user: 'panel', pid: String(process.pid), cpu: 0.8, mem: 1.2, command: 'node src/index.js (DARKONYX PANEL Core)' }
-      ];
+      // `ps` unavailable: report the one process we can actually account for.
+      topProcesses = [{
+        user: os.userInfo().username,
+        pid: String(process.pid),
+        cpu: 0,
+        mem: 0,
+        command: 'node src/index.js (DARKONYX PANEL core)',
+        note: 'ps unavailable — only the panel process is listed'
+      }];
     }
 
     const cpus = os.cpus() || [];
-    const loadAvg = os.loadavg() || [0.2, 0.3, 0.25];
+    const loadAvg = os.loadavg() || [0, 0, 0];
+
+    // Docker truth: count what is really there, and say so when it is absent.
+    let dockerState = {
+      available: dockerService.isAvailable,
+      containers: { total: 0, running: 0, stopped: 0 },
+      images: 0,
+      error: dockerService.isAvailable ? null : 'Docker socket not present on this host — servers run as native processes.'
+    };
+    if (dockerService.isAvailable && dockerService.docker) {
+      try {
+        const containers = await dockerService.docker.listContainers({ all: true });
+        const images = await dockerService.docker.listImages();
+        const running = containers.filter((c) => c.State === 'running').length;
+        dockerState.containers = { total: containers.length, running, stopped: containers.length - running };
+        dockerState.images = images.length;
+      } catch (dockErr) {
+        dockerState.error = dockErr.message;
+      }
+    }
 
     res.json({
       success: true,
       node,
       daemon: {
-        version: '1.11.8',
+        version: panelVersion,
         status: 'running',
         service: 'active (running)',
         pid: process.pid,
-        started_at: new Date(Date.now() - (os.uptime() * 1000)).toISOString()
+        mode: dockerService.isAvailable ? 'docker' : 'native-process',
+        started_at: new Date(Date.now() - (os.uptime() * 1000)).toISOString(),
+        process_uptime_seconds: Math.floor(process.uptime())
       },
       system: {
         os: `${os.type()} ${os.release()}`,
@@ -492,7 +479,7 @@ router.get('/:id/wings-stats', authenticate, requireAdmin, async (req, res) => {
         load_avg: loadAvg.map(n => typeof n === 'number' ? n.toFixed(2) : n),
         cpu: {
           count: cpus.length,
-          model: (cpus[0] && cpus[0].model) || 'AMD EPYC / Intel Xeon',
+          model: (cpus[0] && cpus[0].model) || 'unknown CPU',
           usage_percent: liveStats.cpu_percent
         },
         memory: {
@@ -508,38 +495,87 @@ router.get('/:id/wings-stats', authenticate, requireAdmin, async (req, res) => {
           percent: liveStats.ssd_percent
         }
       },
-      docker: {
-        containers: { total: 4, running: 3, stopped: 1 },
-        images: 8
-      },
+      docker: dockerState,
       stats: liveStats,
-      topProcesses,
-      wingsStatus: 'running',
-      wingsVersion: 'v1.11.8'
+      topProcesses
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// Wings Service Control
+// Remote node service control. There is no agent on the far side to invent,
+// so this reports exactly what it can do: for the node the panel runs on it
+// really restarts the panel process; for a remote node it says it is
+// unsupported instead of pretending a signal was delivered.
+function isLocalNode(node) {
+  if (!node || !node.fqdn) return false;
+  const local = ['127.0.0.1', 'localhost', '::1', os.hostname()];
+  return local.includes(String(node.fqdn).toLowerCase()) || String(node.fqdn) === config.PUBLIC_IP;
+}
+
 router.post('/:id/service', authenticate, requireAdmin, async (req, res) => {
   try {
     const { action } = req.body;
     const nodeId = req.params.id;
-    logActivity(req.user.id, null, 'WINGS_SERVICE_ACTION', `Wings action [${action}] on node ${nodeId}`, req);
-    res.json({ success: true, message: `Wings service [${(action || '').toUpperCase()}] dispatched successfully.` });
+    const node = await query.get('SELECT * FROM nodes WHERE id = ?', [nodeId]);
+    if (!node) return res.status(404).json({ success: false, error: 'Node not found.' });
+
+    const act = String(action || '').toLowerCase();
+    if (!['start', 'restart', 'stop'].includes(act)) {
+      return res.status(400).json({ success: false, error: `Unknown service action "${action}".` });
+    }
+
+    if (!isLocalNode(node)) {
+      return res.status(409).json({
+        success: false,
+        error: `Node "${node.name}" is remote (${node.fqdn}). Service control needs the daemon agent running on that host; this panel cannot signal it directly.`
+      });
+    }
+
+    logActivity(req.user.id, null, 'PANEL_SERVICE_ACTION', `Panel service [${act}] requested on node ${nodeId}`, req);
+
+    if (act === 'restart' || act === 'stop') {
+      // The panel runs under pm2/systemd/the sandbox supervisor; exiting is the
+      // honest action and the supervisor brings it back for a restart.
+      res.json({
+        success: true,
+        message: `Panel process ${act === 'stop' ? 'stopping' : 'restarting'} now. The page will reconnect once the supervisor brings it back.`
+      });
+      setTimeout(() => {
+        if (act === 'stop') process.exit(0);
+        else process.kill(process.pid, 'SIGTERM');
+      }, 400);
+      return;
+    }
+
+    return res.json({ success: true, message: 'The panel process is already running.' });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// Reboot VPS
+// Host reboot (local node only, and only when the panel can actually do it)
 router.post('/:id/reboot-vps', authenticate, requireAdmin, async (req, res) => {
   try {
     const nodeId = req.params.id;
-    logActivity(req.user.id, null, 'NODE_VPS_REBOOT', `Reboot signal sent to node ${nodeId}`, req);
-    res.json({ success: true, message: 'Reboot signal sent to host system successfully.' });
+    const node = await query.get('SELECT * FROM nodes WHERE id = ?', [nodeId]);
+    if (!node) return res.status(404).json({ success: false, error: 'Node not found.' });
+    if (!isLocalNode(node)) {
+      return res.status(409).json({ success: false, error: `Node "${node.name}" is remote — a reboot has to be issued on that host.` });
+    }
+    if (!config.ALLOW_HOST_REBOOT) {
+      return res.status(403).json({
+        success: false,
+        error: 'Host reboot is disabled. Start the panel with ALLOW_HOST_REBOOT=1 to permit it (the process needs root and this is destructive).'
+      });
+    }
+    logActivity(req.user.id, null, 'NODE_VPS_REBOOT', `Host reboot issued from node ${nodeId}`, req);
+    res.json({ success: true, message: 'Host reboot issued.' });
+    setTimeout(() => {
+      try { require('child_process').execSync('reboot', { timeout: 5000 }); }
+      catch (e) { console.error('reboot failed:', e.message); }
+    }, 500);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -605,33 +641,47 @@ router.post('/:id/firewall/flush', authenticate, requireAdmin, async (req, res) 
   }
 });
 
-// Node Daemon Logs (nodes/view/logs.blade.php)
+// Node logs — the real panel log stream plus audit trail for this node.
 router.get('/:id/logs', authenticate, requireAdmin, async (req, res) => {
   try {
     const nodeId = req.params.id;
-    const filter = (req.query.search || '').toLowerCase();
+    const filter = String(req.query.search || '').toLowerCase();
+    const lines = [];
 
-    // Fetch recent activity logs or system logs
+    // 1. real process log file if the supervisor/panel writes one
+    for (const candidate of [path.join(config.DATA_DIR || '', 'panel.log'), path.join(__dirname, '../../logs/panel.log')]) {
+      try {
+        if (candidate && fs.existsSync(candidate)) {
+          const raw = fs.readFileSync(candidate, 'utf8').split('\n').slice(-200);
+          lines.push(...raw.filter(Boolean));
+          break;
+        }
+      } catch (e) { /* keep looking */ }
+    }
+
+    // 2. audit trail — always available, always real
     const activities = await query.all(
       'SELECT action, details, ip_address, created_at FROM activity_logs ORDER BY id DESC LIMIT 100'
     );
-
-    let logLines = activities.map(a => `[${a.created_at}] [INFO] [SYSTEM]: Action=${a.action} Details="${a.details || ''}" IP=${a.ip_address || '127.0.0.1'}`);
-
-    if (logLines.length === 0) {
-      logLines = [
-        `[${new Date().toISOString()}] [INFO] [daemon]: Wings daemon v1.11.8 started successfully on port 3003`,
-        `[${new Date().toISOString()}] [INFO] [daemon]: Connecting to Docker socket /var/run/docker.sock... Connected!`,
-        `[${new Date().toISOString()}] [INFO] [daemon]: nftables firewall table 'pterodactyl' initialized.`,
-        `[${new Date().toISOString()}] [INFO] [daemon]: Node health check passed. Ready to process server containers.`
-      ];
+    if (activities.length) {
+      lines.push(`--- activity for node ${nodeId} ---`);
+      for (const a of activities) {
+        lines.push(`[${a.created_at}] [AUDIT] ${a.action} ${a.details || ''} (${a.ip_address || 'local'})`);
+      }
     }
 
-    if (filter) {
-      logLines = logLines.filter(l => l.toLowerCase().includes(filter));
-    }
+    // 3. process/supervisor facts
+    lines.push(`--- process ---`);
+    lines.push(`panel v${panelVersion} · pid ${process.pid} · uptime ${Math.floor(process.uptime())}s · node ${process.version}`);
+    lines.push(`runtime mode: ${dockerService.isAvailable ? 'docker containers' : 'native processes (no docker socket)'}`);
 
-    res.json({ success: true, logs: logLines.join('\n') });
+    const filtered = filter ? lines.filter((l) => l.toLowerCase().includes(filter)) : lines;
+    res.json({
+      success: true,
+      logs: filtered.join('\n'),
+      source: 'panel log + audit trail',
+      total_lines: filtered.length
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -664,27 +714,38 @@ router.get('/:id/backups', authenticate, requireAdmin, async (req, res) => {
   }
 });
 
-// Port Detail View (nodes/view/wings-port-detail.blade.php)
+// Port detail — everything the panel actually knows about this allocation.
 router.get('/:id/ports/:port/detail', authenticate, requireAdmin, async (req, res) => {
   try {
     const { id, port } = req.params;
     const alloc = await query.get(
-      'SELECT a.*, s.name as server_name, s.uuid as server_uuid FROM allocations a LEFT JOIN servers s ON a.server_id = s.id WHERE a.node_id = ? AND a.port = ?',
+      `SELECT a.*, s.name as server_name, s.uuid as server_uuid, s.status as server_status, s.user_id
+       FROM allocations a LEFT JOIN servers s ON a.server_id = s.id
+       WHERE a.node_id = ? AND a.port = ?`,
       [id, port]
     );
+
+    if (!alloc) return res.status(404).json({ success: false, error: `Port ${port} is not allocated on this node.` });
+
+    const owner = alloc.user_id ? await query.get('SELECT username, email FROM users WHERE id = ?', [alloc.user_id]) : null;
+    const listening = await new Promise((resolve) => {
+      const net = require('net');
+      const socket = net.connect({ host: '127.0.0.1', port: parseInt(port, 10) });
+      const done = (state) => { try { socket.destroy(); } catch (e) {} resolve(state); };
+      socket.setTimeout(700);
+      socket.once('connect', () => done(true));
+      socket.once('timeout', () => done(false));
+      socket.once('error', () => done(false));
+    });
 
     res.json({
       success: true,
       port: parseInt(port, 10),
-      allocation: alloc || null,
-      traffic: {
-        rx_speed: '1.24 MB/s',
-        tx_speed: '3.58 MB/s',
-        total_rx: '48.2 MB',
-        total_tx: '124.6 MB',
-        active_connections: alloc && alloc.assigned ? 8 : 0,
-        protocol_breakdown: { tcp: 65, udp: 35 }
-      }
+      allocation: alloc,
+      owner,
+      listening,
+      traffic: null,
+      note: 'Per-port throughput is not measured by this panel; the figures shown elsewhere are host-wide totals.'
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

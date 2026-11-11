@@ -41,7 +41,7 @@ router.get('/eggs/repo/:type', authenticate, requireAdmin, async (req, res) => {
     const eggs = await addonService.getEggRepository(type);
     res.json({ success: true, type, eggs });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err.status || 500).json({ success: false, offline: err.status === 502, error: err.message });
   }
 });
 

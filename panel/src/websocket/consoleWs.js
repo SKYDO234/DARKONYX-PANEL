@@ -101,7 +101,8 @@ function setupWebSocket(wss) {
       }
       const can = (perm) => wsPermissions.includes('*') || wsPermissions.includes(perm);
 
-      // Attach client to runner service
+      // subscribeSocket replays the captured log buffer as a `history` frame, so
+      // a reloaded page shows what the server already printed.
       runnerService.subscribeSocket(serverId, ws);
 
       ws.on('message', async (data) => {

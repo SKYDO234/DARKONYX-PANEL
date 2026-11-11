@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const os = require('os');
 const fs = require('fs');
-const { query, pool } = require('../database/db');
+const { query, pool, DB_DRIVER, SQLITE_FILE } = require('../database/db');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const runnerService = require('../services/runnerService');
 const dockerService = require('../services/dockerService');
@@ -12,25 +12,7 @@ const config = require('../config/config');
 const updateService = require('../services/updateService');
 const autoSuspensionService = require('../services/autoSuspensionService');
 
-let lastNet = { rx: 0, tx: 0, time: Date.now() };
-
-function getNetworkBytes() {
-  try {
-    const data = fs.readFileSync('/proc/net/dev', 'utf8');
-    const lines = data.split('\n');
-    let rx = 0, tx = 0;
-    for (const line of lines) {
-      if (line.includes(':') && !line.includes('lo:')) {
-        const parts = line.split(':')[1].trim().split(/\s+/);
-        rx += parseInt(parts[0], 10) || 0;
-        tx += parseInt(parts[8], 10) || 0;
-      }
-    }
-    return { rx, tx };
-  } catch (e) {
-    return { rx: 0, tx: 0 };
-  }
-}
+const telemetry = require('../services/systemTelemetry');
 
 // Global System Overview with Live Health and Telemetry
 router.get('/overview', authenticate, requireAdmin, async (req, res) => {
@@ -42,51 +24,37 @@ router.get('/overview', authenticate, requireAdmin, async (req, res) => {
     const memPercent = Math.min(100, Math.max(1, Math.round((usedMem / totalMem) * 100)));
 
     const cpus = os.cpus() || [];
-    let totalTick = 0;
-    let idleTick = 0;
-    cpus.forEach(cpu => {
-      for (const type in cpu.times) {
-        totalTick += cpu.times[type];
-      }
-      idleTick += cpu.times.idle;
-    });
-    const rawCpu = totalTick > 0 ? Math.round((1 - idleTick / totalTick) * 100) : 5;
-    const cpuPercent = Math.min(100, Math.max(0, rawCpu));
+    // one-second background sampler → real interval CPU, even on first request
+    const cpuPercent = telemetry.cpuPercent == null ? 0 : telemetry.cpuPercent;
     const loadAvg = os.loadavg();
 
-    let diskTotalBytes = 100 * 1024 * 1024 * 1024;
-    let diskUsedBytes = 25 * 1024 * 1024 * 1024;
-    let diskPercent = 25;
-    try {
-      const stat = fs.statfsSync(config.DATA_DIR || '/');
-      diskTotalBytes = stat.blocks * stat.bsize;
-      const diskFreeBytes = stat.bfree * stat.bsize;
-      diskUsedBytes = Math.max(0, diskTotalBytes - diskFreeBytes);
-      diskPercent = Math.min(100, Math.max(1, Math.round((diskUsedBytes / diskTotalBytes) * 100)));
-    } catch (e) {
-      // Fallback
-    }
+    const disk = telemetry.diskUsage(config.DATA_DIR || '/');
+    const diskTotalBytes = disk.total_bytes;
+    const diskUsedBytes = disk.used_bytes;
+    const diskPercent = disk.percent;
+    const diskMeasured = disk.measured;
 
-    // Network delta
-    const bytes = getNetworkBytes();
-    const now = Date.now();
-    const timeDelta = Math.max(0.5, (now - lastNet.time) / 1000);
-    const rxDelta = Math.max(0, (bytes.rx - lastNet.rx) / timeDelta);
-    const txDelta = Math.max(0, (bytes.tx - lastNet.tx) / timeDelta);
-    lastNet = { rx: bytes.rx, tx: bytes.tx, time: now };
+    // Network — real sampled deltas
+    const net = telemetry.net;
+    const rxDelta = net.rx_bytes_sec;
+    const txDelta = net.tx_bytes_sec;
 
     // 2. MariaDB Health Check & Version
     let mariaDbStatus = 'connected';
     let mariaDbVersion = 'Unknown';
     let mariaDbLatencyMs = 0;
-    let mariaDbThreads = 1;
+    let mariaDbThreads = null;
+    let mariaDbMeasured = false;
     try {
       const startPing = Date.now();
       const [verRows] = await pool.query('SELECT VERSION() as v');
       mariaDbLatencyMs = Date.now() - startPing;
       if (verRows && verRows[0]) mariaDbVersion = verRows[0].v;
-      const [threadRows] = await pool.query("SHOW STATUS LIKE 'Threads_connected'");
-      if (threadRows && threadRows[0]) mariaDbThreads = parseInt(threadRows[0].Value, 10) || 1;
+      mariaDbMeasured = true;
+      try {
+        const [threadRows] = await pool.query("SHOW STATUS LIKE 'Threads_connected'");
+        if (threadRows && threadRows[0]) mariaDbThreads = parseInt(threadRows[0].Value, 10);
+      } catch (e) { mariaDbThreads = null; } // SQLite has no thread counter
     } catch (dbErr) {
       mariaDbStatus = 'error: ' + dbErr.message;
     }
@@ -188,23 +156,31 @@ router.get('/overview', authenticate, requireAdmin, async (req, res) => {
         disk: {
           total_bytes: diskTotalBytes,
           used_bytes: diskUsedBytes,
-          percent: diskPercent
+          percent: diskPercent,
+          measured: diskMeasured
         },
         network: {
           rx_bytes_sec: rxDelta,
           tx_bytes_sec: txDelta,
-          total_rx: bytes.rx,
-          total_tx: bytes.tx
+          total_rx: net.total_rx,
+          total_tx: net.total_tx,
+          measured: net.measured
         }
       },
-      mariadb: {
+      database: {
+        // report the engine that is actually serving queries, not a fixed
+        // MySQL identity — this panel runs embedded SQLite by default
+        engine: DB_DRIVER === 'mysql' || DB_DRIVER === 'mariadb' ? 'MariaDB / MySQL' : 'Embedded SQLite',
+        driver: DB_DRIVER,
         status: mariaDbStatus,
         version: mariaDbVersion,
         latency_ms: mariaDbLatencyMs,
         threads_connected: mariaDbThreads,
-        host: config.DB_HOST,
-        port: config.DB_PORT,
-        database: config.DB_NAME
+        measured: mariaDbMeasured,
+        host: DB_DRIVER === 'mysql' || DB_DRIVER === 'mariadb' ? config.DB_HOST : null,
+        port: DB_DRIVER === 'mysql' || DB_DRIVER === 'mariadb' ? config.DB_PORT : null,
+        file: DB_DRIVER === 'mysql' || DB_DRIVER === 'mariadb' ? null : SQLITE_FILE,
+        database: DB_DRIVER === 'mysql' || DB_DRIVER === 'mariadb' ? config.DB_NAME : 'darkonyx.sqlite3'
       },
       docker: dockerHealth,
       metrics: {

@@ -15,9 +15,12 @@
     "pm2:stop": "pm2 stop darkonyx",
     "pm2:restart": "pm2 restart darkonyx",
     "pm2:logs": "pm2 logs darkonyx",
-    "test": "node test/feature-audit.js",
+    "test": "node test/feature-audit.js && node test/layout-audit.js && node test/honesty-audit.js",
     "test:api": "node test/feature-audit.js",
-    "test:ui": "node test/ui-audit.js"
+    "test:data": "node test/honesty-audit.js",
+    "test:ui": "node test/ui-audit.js",
+    "test:layout": "node test/layout-audit.js",
+    "test:clicks": "node test/click-probe.js"
   },
   "keywords": [
     "darkonyx",

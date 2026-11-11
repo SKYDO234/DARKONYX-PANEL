@@ -618,6 +618,89 @@ class RunnerService {
     return 'offline';
   }
 
+  /**
+   * Real CPU + RSS for a native (non-container) server, summed over the whole
+   * process tree. The runner spawns `/bin/sh -c "...java -jar ..."`, so the
+   * actual game server is a grandchild — measuring only the shell reported a
+   * cheerful 0% / 1 MB regardless of load.
+   *
+   * CPU percent comes from utime+stime deltas between samples, so the first
+   * tick reports 0 rather than a guessed value.
+   */
+  readProcUsage(rootPid) {
+    const fs = require('fs');
+    const HZ = 100;          // USER_HZ on Linux
+    const PAGE = 4096;
+
+    const readStat = (pidRaw) => {
+      const pid = Number(pidRaw);
+      try {
+        const raw = fs.readFileSync(`/proc/${pid}/stat`, 'utf8').trim();
+        const close = raw.lastIndexOf(')');
+        const f = raw.slice(close + 2).split(' ');
+        return {
+          pid,
+          ppid: Number(f[1]),
+          ticks: (Number(f[11]) || 0) + (Number(f[12]) || 0),
+          rssPages: Number(f[21]) || 0
+        };
+      } catch (e) { return null; }
+    };
+
+    // every process on the box, so we can walk down from the server's shell
+    const all = [];
+    try {
+      for (const entry of fs.readdirSync('/proc')) {
+        if (!/^\d+$/.test(entry)) continue;
+        const st = readStat(entry);
+        if (st) all.push(st);
+      }
+    } catch (e) {
+      throw new Error('/proc is not available on this platform');
+    }
+
+    const byParent = new Map();
+    for (const p of all) {
+      if (!byParent.has(p.ppid)) byParent.set(p.ppid, []);
+      byParent.get(p.ppid).push(p);
+    }
+
+    const tree = [];
+    const queue = [Number(rootPid)];
+    const seen = new Set();
+    while (queue.length) {
+      const pid = queue.shift();
+      if (seen.has(pid)) continue;
+      seen.add(pid);
+      const st = all.find((p) => p.pid === pid);
+      if (st) tree.push(st);
+      for (const kid of byParent.get(pid) || []) queue.push(kid.pid);
+    }
+
+    const ticks = tree.reduce((a, p) => a + p.ticks, 0);
+    const rssPages = tree.reduce((a, p) => a + p.rssPages, 0);
+
+    if (!this._procCpu) this._procCpu = new Map();
+    const prev = this._procCpu.get(rootPid);
+    const now = Date.now();
+    let cpuPercent = null;
+    if (prev && now > prev.at) {
+      const elapsed = (now - prev.at) / 1000;
+      const used = (ticks - prev.ticks) / HZ;
+      // sum across cores → normalise by core count so 100% means one full core
+      cpuPercent = Math.max(0, Math.min(100 * (require('os').cpus().length || 1), (used / elapsed) * 100));
+    }
+    this._procCpu.set(rootPid, { ticks, at: now });
+    if (this._procCpu.size > 512) this._procCpu.delete(this._procCpu.keys().next().value);
+
+    return {
+      memoryMb: parseFloat(((rssPages * PAGE) / (1024 * 1024)).toFixed(1)),
+      cpuPercent: cpuPercent === null ? 0 : parseFloat(cpuPercent.toFixed(2)),
+      processes: tree.length,
+      first_sample: cpuPercent === null
+    };
+  }
+
   isServerRunning(serverId) {
     const sId = Number(serverId);
     const record = this.activeProcesses.get(sId);
@@ -694,26 +777,31 @@ class RunnerService {
         } catch (e) {}
       }
 
-      // 3. Fallbacks if container returned 0 or process is native
-      if (memoryMb === 0) {
-        memoryMb = record.lastMemory || (Math.floor(Math.random() * 40) + 160);
+      // 3. Native (non-Docker) runs: measure the real child process tree from
+      //    /proc instead of inventing numbers. If the platform has no /proc we
+      //    report zeros and flag the sample as unmeasured — never fake it.
+      let measured = !!record.container && dockerService.isAvailable;
+      if (!measured && record.process && record.process.pid) {
+        try {
+          const proc = this.readProcUsage(record.process.pid);
+          memoryMb = proc.memoryMb;
+          cpu = proc.cpuPercent;
+          measured = true;
+        } catch (e) { /* /proc unavailable */ }
+      }
+      if (!measured) {
+        memoryMb = 0;
+        cpu = 0;
       }
       record.lastMemory = memoryMb;
 
-      if (cpu === 0 && record.status === 'running') {
-        cpu = parseFloat((Math.random() * 4 + 1.2).toFixed(2));
+      // host-wide network counters are real; per-server network is only known
+      // for containers, so a native server reports its own zeros.
+      if (measured && rxBytes === 0 && txBytes === 0 && record.container) {
+        rxBytes = record.network ? record.network.rx_bytes : 0;
+        txBytes = record.network ? record.network.tx_bytes : 0;
       }
-
-      if (rxBytes === 0 && txBytes === 0) {
-        if (!record.network) {
-          record.network = { rx_bytes: 524288, tx_bytes: 262144 };
-        } else {
-          record.network.rx_bytes += Math.floor(Math.random() * 2048) + 512;
-          record.network.tx_bytes += Math.floor(Math.random() * 1024) + 256;
-        }
-        rxBytes = record.network.rx_bytes;
-        txBytes = record.network.tx_bytes;
-      }
+      if (record.container) record.network = { rx_bytes: rxBytes, tx_bytes: txBytes };
 
       const stats = {
         cpu,
@@ -725,6 +813,7 @@ class RunnerService {
           tx_bytes: txBytes
         },
         status: record.status,
+        measured,
         timestamp: Date.now()
       };
 

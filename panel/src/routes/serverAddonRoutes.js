@@ -228,7 +228,7 @@ router.get('/fivem/artifacts', authenticate, async (req, res) => {
     const artifacts = await addonService.getFivemArtifacts();
     res.json({ success: true, artifacts });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err.status || 500).json({ success: false, offline: err.status === 502, error: err.message });
   }
 });
 

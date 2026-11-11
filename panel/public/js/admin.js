@@ -25,7 +25,7 @@
     try { d = await API.get('/api/admin/overview'); }
     catch (e) { document.getElementById('adm-body').innerHTML = `<div class="card card-pad">${emptyState('alert', 'Telemetry unavailable', e.message)}</div>`; return; }
 
-    const sys = d.system, m = d.metrics, db = d.mariadb, docker = d.docker;
+    const sys = d.system, m = d.metrics, db = d.database || d.mariadb || {}, docker = d.docker || {};
     history.cpu.push(sys.cpu.percent); if (history.cpu.length > 40) history.cpu.shift();
     history.mem.push(sys.memory.percent); if (history.mem.length > 40) history.mem.shift();
     const netRate = (sys.network.rx_bytes_sec + sys.network.tx_bytes_sec);
@@ -87,9 +87,9 @@
             <div class="card-head"><h3>Services</h3></div>
             <div class="card-body">
               <div class="kv"><span class="k">Panel</span><span class="v"><span class="chip chip-live">v${esc(sys.panel_version)}</span></span></div>
-              <div class="kv"><span class="k">Database</span><span class="v">${db.status === 'connected' ? `<span class="chip chip-live">${esc(db.version.split(' ').slice(0, 2).join(' '))}</span>` : `<span class="chip chip-danger">error</span>`}</span></div>
-              <div class="kv"><span class="k">DB latency</span><span class="v mono">${esc(db.latency_ms)} ms</span></div>
-              <div class="kv"><span class="k">Docker</span><span class="v">${docker.available ? `<span class="chip chip-live">${docker.containers_running}/${docker.containers_total} up</span>` : `<span class="chip chip-warn">process mode</span>`}</span></div>
+              <div class="kv"><span class="k">Database</span><span class="v">${db.status === 'connected' ? `<span class="chip chip-live">${esc(String(db.version || db.engine || 'connected').split(' ').slice(0, 3).join(' '))}</span>` : `<span class="chip chip-danger">${esc(db.status || 'unavailable')}</span>`}</span></div>
+              <div class="kv"><span class="k">DB latency</span><span class="v mono">${db.measured === false ? 'not measured' : esc(db.latency_ms) + ' ms'}</span></div>
+              <div class="kv"><span class="k">Containers</span><span class="v">${docker.available ? `<span class="chip chip-live">${docker.containers_running}/${docker.containers_total} running</span>` : `<span class="chip chip-warn">native process mode</span>`}</span></div>
               <div class="kv"><span class="k">Runtime</span><span class="v mono">${esc(sys.node_version)}</span></div>
               <div class="kv"><span class="k">Host uptime</span><span class="v">${esc(fmt.uptime(sys.uptime_seconds))}</span></div>
               <div class="kv"><span class="k">Platform</span><span class="v">${esc(sys.platform)} ${esc(sys.arch)}</span></div>

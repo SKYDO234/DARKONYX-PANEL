@@ -14,6 +14,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" /></noscript>
+  <noscript><style>.boot-hint{display:none}</style></noscript>
   <link rel="stylesheet" href="/css/darkonyx.css" />
 </head>
 <body>
@@ -28,7 +29,13 @@
         <div class="brand-mark" style="width:52px;height:52px;flex-basis:52px">
           <svg viewBox="0 0 24 24" fill="none"><path d="M12 2.6 20.5 7v10L12 21.4 3.5 17V7L12 2.6Z" stroke="#c4b5fd" stroke-width="1.4"/><path d="M12 7.4 16.6 10v4.6L12 17.2 7.4 14.6V10L12 7.4Z" fill="#8b5cf6" fill-opacity=".85"/></svg>
         </div>
-        <div class="dim small mono">initialising darkonyx core…</div>
+        <div class="dim small mono" id="boot-status">initialising darkonyx core…</div>
+        <!-- If a script fails to load, boot.js is the last thing to run; this
+             button only stays visible when the app never mounted. -->
+        <div id="boot-actions" class="col center gap-8" style="display:none">
+          <p class="dim small" style="max-width:38ch;text-align:center">The panel could not finish starting. Reload, and if it keeps happening check the browser console.</p>
+          <button class="btn btn-primary btn-sm" onclick="location.reload()">Reload panel</button>
+        </div>
       </div>
     </div>
   </div>

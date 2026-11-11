@@ -65,11 +65,21 @@
       const body = document.getElementById('mk-body');
       body.innerHTML = window.el.skeleton(5);
       try {
-        if (state.tab === 'maps') return paintMaps(body);
-        if (state.tab === 'plugins') return paintModrinth(body);
-        return paintModpacks(body);
+        // await, or a rejected fetch escapes this try/catch and the tab is left
+        // showing skeletons forever with an unhandled rejection in the console
+        if (state.tab === 'maps') return await paintMaps(body);
+        if (state.tab === 'plugins') return await paintModrinth(body);
+        return await paintModpacks(body);
       } catch (e) {
-        body.innerHTML = emptyState('alert', 'Marketplace unavailable', e.message);
+        const offline = /network|socket|tls|fetch|unreachable|ENOTFOUND|ECONN/i.test(String(e.message || ''));
+        body.innerHTML = emptyState(
+          offline ? 'globe' : 'alert',
+          offline ? 'Marketplace is offline' : 'Marketplace unavailable',
+          offline
+            ? 'This host cannot reach the Modrinth API right now. Curated maps still work — switch to the Worlds & maps tab. Everything else in the panel is unaffected.'
+            : e.message
+        );
+        if (offline) toast('Modrinth is unreachable from this host', 'warn', 'Offline');
       }
     }
 

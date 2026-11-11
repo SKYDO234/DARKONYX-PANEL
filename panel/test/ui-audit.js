@@ -92,9 +92,30 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await sleep(1500);
   ok('login form authenticates', !!window.DKX.Store.token);
 
+  /* ---- the router must be live the moment the shell paints ---- */
+  ok('router started after login (hashchange listener attached)', window.DKX.Router._started === true);
+
+  {
+    const link = doc.querySelector('[data-nav="admin-users"]');
+    ok('sidebar exposes nav links', !!link);
+    link.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+    await sleep(60);
+    const immediate = (doc.querySelector('.rail-item.active') || {}).dataset?.nav;
+    ok('sidebar click highlights the destination immediately', immediate === 'admin-users', immediate || 'none');
+    await sleep(1300);
+    const h1 = (doc.querySelector('#view-inner h1') || {}).textContent || '';
+    ok('sidebar click actually renders that page', /users/i.test(h1), h1 || 'nothing');
+    ok('route progress bar completes', (() => {
+      const bar = doc.querySelector('#route-progress');
+      return !!bar && !bar.classList.contains('is-on');
+    })());
+  }
+
+  /* Navigate exactly like a click does: change the hash and let the router's
+     own hashchange listener do the work. Calling resolve() by hand here would
+     hide a broken listener (that bug shipped once — see the nav tests below). */
   const go = async (hash, ms = 900) => {
     window.location.hash = '#' + hash;
-    await window.DKX.Router.resolve();
     await sleep(ms);
     return doc.querySelector('#view-inner');
   };

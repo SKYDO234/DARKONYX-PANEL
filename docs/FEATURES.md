@@ -193,17 +193,48 @@ dependencies, git status (works offline, degrades gracefully).
 
 ---
 
+## Data integrity — nothing on screen is invented
+
+Every number in the panel is measured or explicitly marked unmeasured. This is
+enforced by `panel/test/honesty-audit.js` (31 checks), which fails the build if
+fabricated data returns.
+
+| Area | How it is measured | When it cannot be measured |
+|---|---|---|
+| CPU | 1-second background sampler over CPU tick deltas (`src/services/systemTelemetry.js`) | never — always a real interval sample |
+| RAM | `os.totalmem()` / `os.freemem()` | n/a |
+| Disk | `statfs` on the data volume | reports capacity as 0 and `measured: false` |
+| Network | `/proc/net/dev` byte deltas per second | `measured: false`, speed shown as 0 B/s |
+| Server CPU / RAM | `/proc/<pid>/stat` summed over the **whole process tree**, delta-sampled | `measured: false` → UI prints "not measured" |
+| Server disk | recursive `du` of the server directory | 0 |
+| Docker | live socket ping, real container/image lists | "Docker socket not present" — never a fake count |
+| Database | real `SELECT VERSION()` + query latency | engine name, file/driver, `measured: false` |
+| Port detail | real TCP connect to the port, real owner lookup | per-port throughput is `null` (the panel does not measure it) |
+| Node logs | panel log file + audit trail | never fabricated boot lines |
+
+Failures tell the truth too: an unreachable Modrinth, FiveM CDN or egg repo
+returns an explicit `offline: true` error instead of a hardcoded catalogue.
+Destructive host actions are refused unless `ALLOW_HOST_REBOOT=1` is set, and a
+mass action that has no implementation is rejected rather than reported as
+"dispatched".
+
 ## Verification
 
 | Suite | Scope | Result |
 |---|---|---|
 | `panel/test/feature-audit.js` | 27 groups, live HTTP calls against a running panel | **155/155** |
-| `panel/test/ui-audit.js` | jsdom SPA harness: login form, 28 routes, bulk actions, 8 node panels | **23/23** |
+| `panel/test/ui-audit.js` | jsdom SPA harness: login form, real click navigation, 28 routes, bulk actions, 8 node panels | **28/28** |
+| `panel/test/honesty-audit.js` | static + live proof that no telemetry is fabricated | **31/31** |
+| `panel/test/layout-audit.js` | overlay/z-index/click-target/design-system coverage | **18/18** |
+| `panel/test/click-probe.js` | clicks every clickable control on all 28 routes | **0 dead controls** |
 | Route parity vs upstream | regex diff of `router.*` declarations, per file | 190 upstream → 197 here (1 upstream-only route deliberately dropped, 8 local additions) |
 | Backend source parity | per-directory file counts across `api, config, database, middleware, routes, services, sftp, websocket` | identical (21/21 services) |
 
 ```bash
 cd panel && node src/index.js        # in one terminal
 npm run test:api                     # 155 backend checks
-npm install --no-save jsdom && npm run test:ui   # 23 frontend checks
+npm run test:data                    # 31 data-integrity checks
+npm run test:ui                      # 28 UI checks (needs jsdom)
+npm run test:layout                  # 18 layout checks
+npm run test:clicks                  # 0 dead controls across 28 routes
 ```

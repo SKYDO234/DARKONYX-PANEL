@@ -117,7 +117,8 @@ async function test(group, label, method, path, body, opts = {}) {
   await test('nodes', 'set ip alias', 'PUT', '/api/admin/nodes/1/allocations/alias', { ip: '127.0.0.1', ip_alias: 'audit.example.com' });
   await test('nodes', 'clear ip alias', 'PUT', '/api/admin/nodes/1/allocations/alias', { ip: '127.0.0.1', ip_alias: '' });
   await test('nodes', 'mass action app name', 'POST', '/api/admin/nodes/mass-action', { action: 'set_app_name', app_name: 'DARKONYX PANEL' });
-  await test('nodes', 'mass action service', 'POST', '/api/admin/nodes/mass-action', { action: 'wings_service', service_action: 'restart', node_ids: [1] });
+  // a mass action that cannot really be performed must be refused, not faked
+  await test('nodes', 'unsupported mass action refused', 'POST', '/api/admin/nodes/mass-action', { action: 'wings_service', service_action: 'restart', node_ids: [1] }, { expect: 400 });
   if (nodeId) {
     await test('nodes', 'create allocations', 'POST', `/api/admin/nodes/${nodeId}/allocations`, { ip: '127.0.0.1', ports: '31000-31002' });
     await test('nodes', 'update node', 'PUT', `/api/admin/nodes/${nodeId}`, { name: 'Audit Node', memory_mb: 8192 });
