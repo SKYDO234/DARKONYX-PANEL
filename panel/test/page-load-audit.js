@@ -31,6 +31,37 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   w.fetch = (u, o) => fetch(String(u).startsWith('http') ? u : BASE + u, o);
   w.WebSocket = class { constructor() { this.readyState = 3; } send() {} close() {} };
   await new Promise((r) => w.addEventListener('load', r, { once: true }));
+
+  // a live server (nodejs is installed on this host) so the console has a real
+  // process to attach to
+  const loginRes = await fetch(BASE + '/api/auth/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'admin', password: 'admin' })
+  }).then((r) => r.json());
+  const apiToken = loginRes.token;
+  const apiCall = async (method, path, body) => {
+    const res = await fetch(BASE + path, {
+      method,
+      headers: { Authorization: `Bearer ${apiToken}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined
+    });
+    return res.json().catch(() => ({}));
+  };
+  // Leftovers from an interrupted earlier run would keep a port busy and make
+  // the fixture die with EADDRINUSE, which looks like a console bug.
+  const leftovers = await apiCall('GET', '/api/servers');
+  for (const srv of (leftovers.servers || [])) {
+    if (!/^Console Load Audit/.test(srv.name || '')) continue;
+    await apiCall('POST', `/api/servers/${srv.id}/power`, { action: 'kill' });
+    await sleep(700);
+    await apiCall('DELETE', `/api/servers/${srv.id}`);
+  }
+  const made = await apiCall('POST', '/api/servers', {
+    name: 'Console Load Audit', user_id: loginRes.user.id, node_id: 1,
+    memory_mb: 512, cpu_limit: 100, disk_mb: 1024, server_type: 'nodejs'
+  });
+  const consoleServerId = made.serverId;
+  if (consoleServerId) await apiCall('POST', `/api/servers/${consoleServerId}/power`, { action: 'start' });
   await sleep(2500);
 
   let pass = 0, fail = 0;
@@ -81,6 +112,51 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const mismatch = await w.DKX_checkBuild(false, 'deadbeef00');
     ok('stale build is detected', mismatch === false, 'would have reloaded');
   }
+  /* ---- the console workspace, loaded over HTTP like a real browser ---- */
+  console.log('\n--- console workspace ---');
+  if (consoleServerId) {
+    w.location.hash = `#/server/${consoleServerId}/console`;
+    await sleep(3200);
+    const view = d.querySelector('#view-inner');
+    const grabSel = (sel) => (d.querySelector(sel) || {}).textContent || '';
+    ok('console workspace mounts', !!d.querySelector('#con-form') && !!d.querySelector('#con-out'), w.location.hash);
+    ok('console renders the server name', new RegExp('Console Load Audit').test(view.textContent || ''));
+    ok('console has no unrendered values', !/undefined|NaN|\[object Object\]/.test(view.innerHTML));
+    ok('stat cards show measured values', /\d/.test(grabSel('#con-mem-v')) && !/^—$/.test(grabSel('#con-mem-v').trim()),
+      `cpu ${grabSel('#con-cpu-v')} · mem ${grabSel('#con-mem-v')} · disk ${grabSel('#con-disk-v')}`);
+    ok('uptime is live from the process', /\ds/.test(grabSel('#con-uptime')), grabSel('#con-uptime'));
+    ok('telemetry says where it came from', /measured|not measured/.test(grabSel('#con-note')), grabSel('#con-note').slice(0, 70));
+    ok('console received the process output', d.querySelectorAll('#con-out .con-line').length > 0,
+      `${d.querySelectorAll('#con-out .con-line').length} lines`);
+
+    // filter + only-matches + clear are wired through the live DOM
+    d.querySelector('#con-find').click();
+    const q = d.querySelector('#con-query');
+    q.value = 'DARKONYX';
+    q.dispatchEvent(new w.Event('input', { bubbles: true }));
+    await sleep(200);
+    ok('filter marks matches', d.querySelectorAll('mark.con-hit').length > 0, grabSel('#con-hits'));
+    d.querySelector('#con-only').checked = true;
+    d.querySelector('#con-only').dispatchEvent(new w.Event('change', { bubbles: true }));
+    await sleep(200);
+    ok('only-matches narrows the pane', d.querySelectorAll('#con-out .con-line').length < 6 && d.querySelectorAll('#con-out .con-line').length > 0,
+      `${d.querySelectorAll('#con-out .con-line').length} lines`);
+    d.querySelector('#con-find-close').click();
+    d.querySelector('#con-time').click();
+    ok('timestamp toggle re-renders lines', d.querySelectorAll('#con-out .con-ts').length > 0);
+    d.querySelector('#con-wrap').click();
+    ok('wrap toggle changes the pane', d.querySelector('#con-out').classList.contains('nowrap'));
+    d.querySelector('#con-clear').click();
+    await sleep(150);
+    ok('clear empties only the view', d.querySelectorAll('#con-out .con-line').length === 0);
+
+    await apiCall('POST', `/api/servers/${consoleServerId}/power`, { action: 'stop' });
+    await sleep(400);
+    await apiCall('DELETE', `/api/servers/${consoleServerId}`);
+  } else {
+    ok('console audit fixture could be created', false, 'server creation failed');
+  }
+
   ok('still no script errors after navigating', realErrors().length === 0, realErrors().slice(0, 3).join(' | ') || 'clean');
 
   console.log(`\n=== ${pass}/${pass + fail} page-load checks passed ===`);

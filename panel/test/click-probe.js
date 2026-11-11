@@ -25,7 +25,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   w.addEventListener('unhandledrejection', (e) => errors.push('rejection: ' + ((e.reason && e.reason.message) || e.reason)));
   const origErr = console.error; console.error = (...a) => { errors.push('console.error: ' + a.map(String).join(' ').slice(0, 160)); };
 
-  for (const f of ['icons.js', 'core.js', 'auth.js', 'portal.js', 'server.js', 'admin.js', 'market.js', 'admin-extra.js', 'boot.js'])
+  for (const f of ['icons.js', 'core.js', 'auth.js', 'portal.js', 'server.js', 'console.js', 'admin.js', 'market.js', 'admin-extra.js', 'boot.js'])
     w.eval(fs.readFileSync(PANEL + '/public/js/' + f, 'utf8'));
   await sleep(300);
   const form = d.querySelector('#auth-form');
@@ -35,7 +35,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await sleep(1600);
 
   const routes = ['/admin/overview', '/admin/servers', '/admin/users', '/admin/nodes', '/admin/network', '/admin/databases', '/admin/backups', '/admin/settings', '/admin/addons', '/admin/social', '/admin/updates', '/portal/overview', '/portal/servers', '/portal/activity', '/account', '/marketplace',
-    ...['console', 'files', 'players', 'worlds', 'backups', 'schedules', 'network', 'users', 'addons', 'databases', 'settings'].map((t) => `/server/${sid}/${t}`)];
+    ...['console', 'files', 'players', 'worlds', 'backups', 'schedules', 'network', 'users', 'addons', 'databases', 'activity', 'settings'].map((t) => `/server/${sid}/${t}`)];
 
   const problems = [];
   for (const r of routes) {

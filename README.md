@@ -18,7 +18,7 @@
 
 | | |
 |---|---|
-| **Live console** | WebSocket stream, ANSI colour, command history, quick commands, live CPU / RAM / disk gauges |
+| **Live console** | Full console workspace: WebSocket stream with auto-reconnect, ANSI colour, search/filter with match stepping, wrap + text-size + timestamp toggles, command history recall (↑/↓), log export, jump-to-latest, live CPU / RAM / disk / network cards and rolling charts |
 | **Power controls** | Start · Restart · Stop · Force kill, with suspend protection |
 | **File manager** | Browse, create, edit, rename, delete, upload, download, backup-and-restore of any file |
 | **Server software** | One-click jar installs across 16 Minecraft flavours via mcjars |

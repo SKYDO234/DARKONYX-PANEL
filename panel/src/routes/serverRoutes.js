@@ -274,6 +274,35 @@ router.get('/:id', authenticate, requireServerAccess('view'), async (req, res) =
   }
 });
 
+// Live runtime snapshot — what the console header and charts read.
+// Every number is a measurement: the Docker container's own counters when the
+// server runs in a container, the child process tree from /proc when it runs
+// natively, and the server directory's real size on disk. When a value cannot
+// be measured the field is null and `measured` explains why, so the UI can say
+// "not measured" instead of drawing a confident zero.
+router.get('/:id/stats', authenticate, requireServerAccess('view'), async (req, res) => {
+  try {
+    const server = req.server;
+    const snapshot = runnerService.getStatsSnapshot(server.id);
+    const diskMb = await runnerService.calculateDiskUsage(path.join(config.SERVERS_DIR, `server${server.id}`));
+    const diskLimit = Number(server.disk_mb) || 0;
+    res.json({
+      success: true,
+      stats: {
+        ...snapshot,
+        disk: diskMb,
+        disk_limit: diskLimit,
+        disk_percent: diskLimit ? Math.min(100, Math.round((diskMb / diskLimit) * 100)) : null,
+        memory_limit: Number(server.memory_mb) || 0,
+        cpu_limit: Number(server.cpu_limit) || 0,
+        timestamp: Date.now()
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Update Server (Details, Build Configuration, Startup, Expiration)
 router.put('/:id', authenticate, requireServerAccess('settings.edit'), async (req, res) => {
   try {

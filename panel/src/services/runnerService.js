@@ -12,6 +12,47 @@ class RunnerService {
     setTimeout(() => this.autoAttachRunningContainers(), 800);
   }
 
+  /** Fresh-enough stats for a single server: the last sampler tick plus the
+   *  record's live status/uptime. Never invented — an unmeasured server says so. */
+  getStatsSnapshot(serverId) {
+    const sId = Number(serverId);
+    const record = this.activeProcesses.get(sId);
+    const last = this.serverStats.get(sId);
+    const status = (record && record.status) || 'offline';
+    const running = status === 'running' || status === 'starting' || status === 'restarting';
+    const uptime = record && record.startedAt && running
+      ? Math.max(0, Math.floor((Date.now() - record.startedAt) / 1000))
+      : 0;
+    if (!last) {
+      return {
+        cpu: null, memory: null, disk: null,
+        network: { rx_bytes: null, tx_bytes: null, rx_sec: null, tx_sec: null },
+        uptime, status, measured: false,
+        reason: running ? 'waiting for the first sampler tick' : 'server is not running',
+        mode: record && record.container ? 'docker' : 'native',
+        processes: null
+      };
+    }
+    return {
+      cpu: last.cpu,
+      memory: last.memory,
+      disk: last.disk,
+      network: {
+        rx_bytes: last.network && last.network.rx_bytes,
+        tx_bytes: last.network && last.network.tx_bytes,
+        rx_sec: last.network ? last.network.rx_sec : null,
+        tx_sec: last.network ? last.network.tx_sec : null
+      },
+      uptime,
+      status,
+      measured: !!last.measured,
+      reason: last.measured ? null : 'this host has no /proc and no Docker statistics',
+      mode: last.mode || 'native',
+      processes: last.processes === undefined ? null : last.processes,
+      first_sample: !!last.first_sample
+    };
+  }
+
   getBuffer(serverId) {
     const active = this.activeProcesses.get(Number(serverId));
     return active ? active.logBuffer.join('') : '';
@@ -388,6 +429,21 @@ class RunnerService {
         record.process = null;
         if (!record.isRestarting) {
           record.status = 'offline';
+          // The last sample stays honest: the process is gone, so CPU/RAM are 0
+          // *and measured*, with the status reported alongside it.
+          const last = this.serverStats.get(sId) || {};
+          this.serverStats.set(sId, {
+            ...last,
+            cpu: 0,
+            memory: 0,
+            network: last.network || { rx_bytes: null, tx_bytes: null, rx_sec: null, tx_sec: null },
+            uptime: 0,
+            status: 'offline',
+            measured: true,
+            mode: last.mode || 'native',
+            processes: 0,
+            timestamp: Date.now()
+          });
           query.run('UPDATE servers SET status = ? WHERE id = ?', ['offline', sId]).catch(() => {});
           this.broadcast(sId, { type: 'status', status: 'offline' });
           this.stopStatsMonitoring(sId);
@@ -430,23 +486,65 @@ class RunnerService {
         try { await record.container.kill(); } catch (k) {}
       }
     } else if (record.process) {
-      // Send graceful stop or SIGTERM
-      try {
-        record.process.stdin.write('stop\nexit\n');
-        setTimeout(() => {
-          if (record.process) {
-            record.process.kill('SIGTERM');
-            setTimeout(() => {
-              if (record.process) record.process.kill('SIGKILL');
-            }, 3000);
-          }
-        }, 2000);
-      } catch (e) {
-        if (record.process) record.process.kill('SIGKILL');
-      }
+      // Ask nicely through stdin first (Minecraft needs `stop` to save), then
+      // escalate over the whole process tree so wrappers like `sh -c` and
+      // `npm start` cannot leave an orphan holding the port.
+      const pid = record.process.pid;
+      try { record.process.stdin.write('stop\nexit\n'); } catch (e) { /* stdin closed */ }
+      setTimeout(async () => {
+        if (!record.process) return;
+        this.signalTree(pid, 'SIGTERM');
+        await this.waitForExit(pid, 4000);
+        if (this.pidAlive(pid)) this.signalTree(pid, 'SIGKILL');
+      }, 2000);
     }
 
     return { success: true };
+  }
+
+  /* --------------------------------------------------------- process trees */
+  pidAlive(pid) {
+    if (!pid) return false;
+    try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+  }
+
+  waitForExit(pid, timeoutMs = 4000) {
+    return new Promise((resolve) => {
+      const started = Date.now();
+      const tick = () => {
+        if (!this.pidAlive(pid)) return resolve(true);
+        if (Date.now() - started > timeoutMs) return resolve(false);
+        setTimeout(tick, 120);
+      };
+      tick();
+    });
+  }
+
+  childPids(rootPid) {
+    const kids = [];
+    try {
+      for (const entry of fs.readdirSync('/proc')) {
+        if (!/^\d+$/.test(entry)) continue;
+        try {
+          const raw = fs.readFileSync(`/proc/${entry}/stat`, 'utf8');
+          const fields = raw.slice(raw.lastIndexOf(')') + 2).split(' ');
+          if (Number(fields[1]) === Number(rootPid)) kids.push(Number(entry));
+        } catch (e) { /* process vanished */ }
+      }
+    } catch (e) { /* no /proc */ }
+    return kids;
+  }
+
+  signalTree(pid, signal) {
+    if (!pid) return;
+    for (const kid of this.childPids(pid)) this.signalTree(kid, signal);
+    try { process.kill(pid, signal); } catch (e) { /* already gone */ }
+  }
+
+  killTree(proc) {
+    if (!proc || !proc.pid) return;
+    this.signalTree(proc.pid, 'SIGKILL');
+    try { proc.kill('SIGKILL'); } catch (e) { /* already gone */ }
   }
 
   async killServer(serverId) {
@@ -458,9 +556,13 @@ class RunnerService {
         try { await record.container.kill(); } catch (e) {}
       }
       if (record.process) {
-        try { record.process.kill('SIGKILL'); } catch (e) {}
+        this.killTree(record.process);
       }
       record.status = 'offline';
+      // Wait until the pid is actually gone before reporting it offline: the
+      // panel used to say "terminated" while a wrapper child still held the
+      // port, which made the next start fail with EADDRINUSE.
+      if (record.process && record.process.pid) await this.waitForExit(record.process.pid, 4000);
     }
     await query.run('UPDATE servers SET status = ? WHERE id = ?', ['offline', sId]);
     this.broadcast(sId, { type: 'status', status: 'offline' });
@@ -713,8 +815,10 @@ class RunnerService {
 
     let tickCount = 0;
     let cachedDiskMb = 0;
+    let lastProcessCount = null;
 
     const interval = setInterval(async () => {
+      const now = Date.now();
       const record = this.activeProcesses.get(sId);
       if (!record || record.status === 'offline') {
         this.stopStatsMonitoring(sId);
@@ -786,6 +890,7 @@ class RunnerService {
           const proc = this.readProcUsage(record.process.pid);
           memoryMb = proc.memoryMb;
           cpu = proc.cpuPercent;
+          lastProcessCount = proc.processes;
           measured = true;
         } catch (e) { /* /proc unavailable */ }
       }
@@ -795,13 +900,24 @@ class RunnerService {
       }
       record.lastMemory = memoryMb;
 
-      // host-wide network counters are real; per-server network is only known
-      // for containers, so a native server reports its own zeros.
-      if (measured && rxBytes === 0 && txBytes === 0 && record.container) {
-        rxBytes = record.network ? record.network.rx_bytes : 0;
-        txBytes = record.network ? record.network.tx_bytes : 0;
+      // Per-server traffic is only known for containers (their veth interface);
+      // a native process has no socket counters we can honestly attribute, so it
+      // reports null instead of a made-up number. Rates are deltas between two
+      // real samples over the measured interval — empty until the second tick.
+      let rxSec = null;
+      let txSec = null;
+      if (record.container && measured) {
+        const prevNet = record.network;
+        const prevAt = record.networkAt;
+        if (prevNet && prevAt && now > prevAt) {
+          const secs = (now - prevAt) / 1000;
+          rxSec = Math.max(0, Math.round((rxBytes - prevNet.rx_bytes) / secs));
+          txSec = Math.max(0, Math.round((txBytes - prevNet.tx_bytes) / secs));
+        }
+        record.network = { rx_bytes: rxBytes, tx_bytes: txBytes };
+        record.networkAt = now;
       }
-      if (record.container) record.network = { rx_bytes: rxBytes, tx_bytes: txBytes };
+      const netMeasured = !!record.container && measured;
 
       const stats = {
         cpu,
@@ -809,12 +925,17 @@ class RunnerService {
         disk: cachedDiskMb,
         uptime: uptimeSec,
         network: {
-          rx_bytes: rxBytes,
-          tx_bytes: txBytes
+          rx_bytes: netMeasured ? rxBytes : null,
+          tx_bytes: netMeasured ? txBytes : null,
+          rx_sec: rxSec,
+          tx_sec: txSec
         },
         status: record.status,
         measured,
-        timestamp: Date.now()
+        mode: record.container ? 'docker' : 'native',
+        processes: lastProcessCount,
+        first_sample: cpu === 0 && tickCount <= 1,
+        timestamp: now
       };
 
       this.serverStats.set(sId, stats);

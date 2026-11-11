@@ -614,7 +614,7 @@
         if (root === 'server') {
           const id = parts[1];
           const tab = parts[2] || 'console';
-          const allowed = ['console', 'files', 'settings', 'backups', 'schedules', 'players', 'worlds', 'users', 'network', 'addons', 'databases'];
+          const allowed = ['console', 'files', 'settings', 'backups', 'schedules', 'players', 'worlds', 'users', 'network', 'addons', 'databases', 'activity'];
           if (!id || !allowed.includes(tab)) { Router.go(`/server/${id || ''}/console`); return; }
           return mount((host) => Views.server.shell(host, id, tab), 'portal-servers', [{ label: 'Servers', hash: '/portal/servers' }, { label: `#${id}` }]);
         }

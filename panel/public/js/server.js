@@ -17,20 +17,22 @@
     { id: 'databases', label: 'Databases', icon: 'database' },
     { id: 'users', label: 'Sub-users', icon: 'shield' },
     { id: 'addons', label: 'Addons', icon: 'puzzle' },
+    { id: 'activity', label: 'Activity', icon: 'activity' },
     { id: 'settings', label: 'Settings', icon: 'sliders' }
   ];
 
-  const state = { server: null, id: null, ws: null, consoleTab: 'console', stats: {} };
+  const state = { server: null, id: null, ws: null, consoleTab: 'console', stats: {}, history: '' };
 
   /* ------------------------------------------------------------- ws console */
   function connectConsole(onLine, onStats, onStatus) {
-    disconnectConsole();
+    closeSocket();
     if (!Store.token || !state.id) return;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     let ws;
     try { ws = new WebSocket(`${proto}://${location.host}/ws/servers/${state.id}/console?token=${encodeURIComponent(Store.token)}`); }
     catch (e) { return; }
     state.ws = ws;
+    state.retries = 0;
     ws.onmessage = (ev) => {
       let msg; try { msg = JSON.parse(ev.data); } catch (e) { return; }
       if (msg.type === 'console' || msg.type === 'history') onLine && onLine(msg.data);
@@ -38,11 +40,32 @@
       else if (msg.type === 'status') { onStatus && onStatus(msg.status, msg.stats); if (msg.stats) onStats && onStats(msg.stats); }
       else if (msg.type === 'error') toast(msg.message, 'err');
     };
-    ws.onclose = () => { if (state.ws === ws) state.ws = null; };
+    // A dropped socket used to stay dropped until the page was reloaded. Retry
+    // with backoff while this socket is still the current one; the REST stats
+    // poll keeps the numbers moving in the meantime.
+    ws.onclose = () => {
+      if (state.ws !== ws) return;
+      state.ws = null;
+      if (state.destroyed || !Store.token || !state.id) return;
+      state.retries = (state.retries || 0) + 1;
+      if (state.retries > 6) { toast('Live stream lost — reopen the console to reconnect', 'err'); return; }
+      clearTimeout(state.reconnectTimer);
+      state.reconnectTimer = setTimeout(() => {
+        if (!state.destroyed && !state.ws) connectConsole(onLine, onStats, onStatus);
+      }, Math.min(8000, 600 * Math.pow(2, state.retries - 1)));
+    };
+    ws.onerror = () => { try { ws.close(); } catch (e) {} };
   }
-  function disconnectConsole() {
+  function closeSocket() {
     try { state.ws && state.ws.close(); } catch (e) {}
     state.ws = null;
+  }
+  function disconnectConsole() {
+    state.destroyed = true;
+    state.retries = 0;
+    clearTimeout(state.reconnectTimer);
+    closeSocket();
+    if (window.DKX.Console) window.DKX.Console.destroy();
     document.title = (Store.settings && Store.settings.panel_name) || 'DARKONYX PANEL';
   }
 
@@ -64,7 +87,10 @@
   /* ------------------------------------------------------------------ shell */
   async function shell(host, id, tab) {
     state.id = id;
+    state.destroyed = false;
+    state.retries = 0;
     if (tab !== 'console') disconnectConsole();
+    else closeSocket();
 
     let payload;
     try { payload = await API.get(`/api/servers/${id}`); }
@@ -72,6 +98,7 @@
 
     const s = payload.server;
     state.server = s;
+    state.history = payload.console || '';
     const perms = payload.permissions || [];
     window.DKX.Shell.setCrumbs([{ label: 'Servers', hash: '/portal/servers' }, { label: s.name }]);
 
@@ -146,7 +173,8 @@
       console: renderConsole, files: renderFiles, players: renderPlayers, worlds: renderWorlds,
       backups: renderBackups, schedules: renderSchedules, network: renderNetwork,
       users: renderSubusers, addons: renderAddons, settings: renderSettings,
-      databases: (h, srv) => (window.DKX.Views.server.databases ? window.DKX.Views.server.databases(h, srv.id) : renderConsole(h, srv))
+      databases: (h, srv) => (window.DKX.Views.server.databases ? window.DKX.Views.server.databases(h, srv.id) : renderConsole(h, srv)),
+      activity: renderActivity
     };
     (renderers[tab] || renderConsole)(body, s, perms);
   }
@@ -182,75 +210,39 @@
   }
 
   /* ---------------------------------------------------------------- console */
+  /* The console workspace lives in js/console.js; this function only owns the
+     socket and the data the console cannot fetch by itself. */
   function renderConsole(host, s) {
-    host.innerHTML = `
-      <div class="split">
-        <div class="col gap-14">
-          <div class="console-shell" style="height:min(58vh,540px)">
-            <div class="console-bar">
-              <div class="console-lights"><i></i><i></i><i></i></div>
-              <span class="console-title">${esc(s.name)} — live console</span>
-              <span class="grow"></span>
-              <button class="btn btn-xs" id="con-clear">${I('trash')} Clear</button>
-            </div>
-            <div class="console-out" id="con-out"><span class="ansi-gray">Connecting to daemon stream…</span></div>
-            <form class="console-in" id="con-form">
-              <span class="prompt">›</span>
-              <input id="con-cmd" placeholder="Type a command and press Enter (e.g. say hello, list, op player)" autocomplete="off" spellcheck="false" />
-              <button class="btn btn-sm btn-primary" type="submit">${I('arrowRight')} Send</button>
-            </form>
-          </div>
-        </div>
-        <div class="col gap-14">
-          <div class="card">
-            <div class="card-head"><h3>Connection</h3></div>
-            <div class="card-body">
-              <div class="section-label">Game address</div>
-              ${window.el.copyField(serverAddress(s), 'Copy address')}
-              <div class="section-label mt-14">SFTP</div>
-              ${window.el.copyField(`sftp://${s.sftp_username || 'user.' + s.id}@${s.sftp_host || location.hostname}:${s.sftp_port || 3004}`, 'SFTP')}
-              <div class="kv mt-14"><span class="k">Password</span><span class="v">your panel password</span></div>
-              <div class="kv"><span class="k">Node</span><span class="v">${esc(s.node_name || 'local')}</span></div>
-              <div class="kv"><span class="k">Allocation</span><span class="v mono">${esc(s.ip || '—')}:${esc(s.port || '—')}</span></div>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-head"><h3>Quick commands</h3></div>
-            <div class="card-body col gap-8">
-              ${[['list', 'Show online players'], ['say Server restarting soon', 'Broadcast message'], ['save-all', 'Force world save'], ['whitelist on', 'Enable whitelist'], ['tps', 'Server tick rate']]
-        .map(([cmd, label]) => `<button class="btn btn-sm" data-quick="${esc(cmd)}" style="justify-content:flex-start">${I('bolt')}<span class="mono" style="font-size:11.5px">${esc(cmd)}</span><span class="grow"></span><span class="dim tiny">${esc(label)}</span></button>`).join('')}
-            </div>
-          </div>
-        </div>
-      </div>`;
-
-    const out = document.getElementById('con-out');
-    out.innerHTML = '';
-    let buffer = '';
-    const write = (chunk) => {
-      buffer += chunk;
-      if (buffer.length > 400000) buffer = buffer.slice(-200000);
-      const nearBottom = out.scrollHeight - out.scrollTop - out.clientHeight < 120;
-      out.innerHTML = ansiToHtml(buffer);
-      if (nearBottom) out.scrollTop = out.scrollHeight;
+    const perms = state.server ? (state.server.permissions || []) : [];
+    const Console = window.DKX.Console;
+    if (!Console) {
+      host.innerHTML = `<div class="card card-pad">${emptyState('alert', 'Console module missing', 'window.DKX.Console is not loaded — reload the panel.')}</div>`;
+      return;
+    }
+    const statsApi = async () => {
+      const r = await API.get(`/api/servers/${s.id}/stats`);
+      return r.stats ? { ...r.stats, permissions: perms } : null;
     };
-    connectConsole(write, (st) => paintStats(st), (st) => {
-      updateStatus(st);
-      // keep the tab title in sync with the live console so background tabs stay useful
-      if (st) document.title = `${st === 'running' ? '● ' : '○ '}${s.name} — DARKONYX`;
+
+    Console.render(host, s, {
+      address: serverAddress(s),
+      history: state.history || '',
+      connect: (onLine, onStats, onStatus) => {
+        connectConsole(
+          (chunk) => onLine(chunk),
+          (stats) => onStats(stats),
+          (status, stats) => {
+            onStatus(status);
+            updateStatus(status, stats);
+          }
+        );
+      },
+      ws: () => state.ws,
+      sendHttp: async (command) => { await API.post(`/api/servers/${s.id}/command`, { command }); },
+      stats: statsApi,
+      setStats: (stats) => { state.stats = stats; paintStats(stats); },
+      setStatus: (status) => updateStatus(status)
     });
-
-    document.getElementById('con-clear').onclick = () => { buffer = ''; out.innerHTML = ''; };
-    const form = document.getElementById('con-form');
-    const cmd = document.getElementById('con-cmd');
-    const send = async (text) => {
-      if (!text.trim()) return;
-      if (state.ws && state.ws.readyState === 1) state.ws.send(JSON.stringify({ action: 'command', command: text }));
-      else { try { await API.post(`/api/servers/${s.id}/command`, { command: text }); } catch (e) { toast(e.message, 'err'); } }
-    };
-    form.onsubmit = (e) => { e.preventDefault(); send(cmd.value); cmd.value = ''; };
-    host.querySelectorAll('[data-quick]').forEach((b) => b.onclick = () => send(b.dataset.quick));
-    setTimeout(() => cmd.focus(), 200);
   }
 
   /* ------------------------------------------------------------------ files */
@@ -695,6 +687,60 @@
         }
       });
     };
+    paint();
+  }
+
+  /* --------------------------------------------------------------- activity */
+  /* The per-server audit trail: every command, power action and setting change
+     the panel recorded for this server, straight from activity_logs. */
+  async function renderActivity(host, s) {
+    host.innerHTML = `<div class="card">
+      <div class="card-head"><div class="grow"><h3>Activity</h3>
+        <div class="card-sub">Everything recorded against this server — commands, power actions and configuration changes</div></div>
+        <div class="row gap-8">
+          <select class="select" id="act-filter" style="width:auto">
+            <option value="">All actions</option>
+            <option value="POWER">Power only</option>
+            <option value="COMMAND">Commands only</option>
+          </select>
+          <button class="btn btn-sm" id="act-refresh">${I('refresh')} Refresh</button>
+        </div>
+      </div>
+      <div id="act-body">${window.el.skeleton(4)}</div>
+    </div>`;
+
+    const badge = (action) => {
+      const a = String(action || '');
+      const cls = /CREATE|START/.test(a) ? 'chip-live' : /DELETE|KILL|STOP|SUSPEND/.test(a) ? 'chip-danger' : /COMMAND|UPDATE|EDIT/.test(a) ? 'chip-onyx' : 'chip-plain';
+      return `<span class="chip ${cls}"><span class="mono tiny">${esc(a || '—')}</span></span>`;
+    };
+
+    const paint = async () => {
+      const body = document.getElementById('act-body');
+      if (!body) return;
+      const filter = document.getElementById('act-filter').value;
+      try {
+        const r = await API.get(`/api/activity/server/${s.id}?limit=100`);
+        let logs = r.logs || [];
+        if (filter === 'POWER') logs = logs.filter((l) => /^(SERVER_)?(START|STOP|RESTART|KILL|SUSPEND|UNSUSPEND)/.test(String(l.action).replace(/^SERVER_/, '')));
+        if (filter === 'COMMAND') logs = logs.filter((l) => /COMMAND/.test(String(l.action)));
+        body.innerHTML = logs.length ? `<div class="table-wrap"><table class="data">
+          <thead><tr><th>Action</th><th>User</th><th>Details</th><th>Source</th><th>When</th></tr></thead>
+          <tbody>${logs.map((l) => `<tr>
+            <td>${badge(l.action)}</td>
+            <td><b>${esc(l.username || 'system')}</b></td>
+            <td class="mono tiny" style="max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(l.details || '')}">${esc(l.details || '—')}</td>
+            <td class="dim small">${esc(l.ip_address || '—')}</td>
+            <td class="dim small" title="${esc(l.created_at || '')}">${esc(fmt.ago(l.created_at))}</td>
+          </tr>`).join('')}</tbody></table></div>
+          <div class="row" style="padding:10px 18px;border-top:1px solid var(--line)"><span class="dim tiny">${logs.length} entr${logs.length === 1 ? 'y' : 'ies'} · newest first</span></div>`
+          : emptyState('activity', 'Nothing recorded yet', filter ? 'No entries match this filter.' : 'Power actions, commands and setting changes will appear here as they happen.');
+      } catch (e) {
+        body.innerHTML = emptyState('alert', 'Activity unavailable', e.message);
+      }
+    };
+    document.getElementById('act-filter').onchange = paint;
+    document.getElementById('act-refresh').onclick = () => { paint(); toast('Activity refreshed', 'ok'); };
     paint();
   }
 

@@ -38,7 +38,20 @@ counted from `panel/src/routes` + `panel/src/api`.
 - Lifecycle: start / stop / restart / **kill** (`POST /api/servers/:id/power`)
 - Suspend / unsuspend, expiry date, delete
 - Live console over WebSocket (`/ws/servers/:id/console`) — command send,
-  power signals, ANSI rendering, command history, quick commands
+  power signals, ANSI rendering, quick commands, and a full console workspace
+  (`public/js/console.js`):
+  - **Terminal** — 3 000-line bounded buffer, ANSI colour + bold, search/filter
+    with match stepping and "only matches", line-wrap / text-size (9–28 px) /
+    timestamp toggles, per-server command history (↑/↓ + history dialog) kept in
+    the browser, copy, download `.log`, clear (view only), jump-to-latest,
+    expand mode, auto-reconnect with exponential backoff
+  - **Telemetry rail** — CPU, memory, disk and network-in/out cards with real
+    limits, plus rolling 60-second charts. Values come from the container's own
+    counters or the process tree in `/proc`; disk is the real size of the server
+    directory. Anything the host cannot measure prints "not measured" with the
+    reason instead of a zero (`GET /api/servers/:id/stats`)
+  - **Activity tab** — the per-server audit trail (`GET /api/activity/server/:id`,
+    now scoped by `requireServerAccess('view')`)
 - Resource limits & build config (CPU %, RAM, disk, swap, IO weight)
 - **Version changer** (switch MC version keeping the world)
 - **Egg changer** (27 selectable templates, `GET/POST .../egg-changer`)

@@ -79,7 +79,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   window.fetch = (u, o) => fetch(u.startsWith('http') ? u : BASE + u, o);
   window.WebSocket = class { constructor() { this.readyState = 3; } send() {} close() {} };
 
-  for (const f of ['icons.js', 'core.js', 'auth.js', 'portal.js', 'server.js', 'admin.js', 'market.js', 'admin-extra.js', 'boot.js']) {
+  for (const f of ['icons.js', 'core.js', 'auth.js', 'portal.js', 'server.js', 'console.js', 'admin.js', 'market.js', 'admin-extra.js', 'boot.js']) {
     window.eval(fs.readFileSync(PATH.join(PANEL, 'public/js', f), 'utf8'));
   }
   await sleep(400);
@@ -132,7 +132,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     '/admin/overview', '/admin/servers', '/admin/users', '/admin/nodes', '/admin/network',
     '/admin/databases', '/admin/backups', '/admin/settings', '/admin/addons', '/admin/social', '/admin/updates',
     '/portal/overview', '/portal/servers', '/portal/activity', '/account', '/marketplace',
-    ...['console', 'files', 'players', 'worlds', 'backups', 'schedules', 'network', 'users', 'addons', 'databases', 'settings']
+    ...['console', 'files', 'players', 'worlds', 'backups', 'schedules', 'network', 'users', 'addons', 'databases', 'activity', 'settings']
       .map((t) => `/server/${sid}/${t}`),
     '/server/99999/console'
   ];
