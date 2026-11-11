@@ -31,6 +31,8 @@
 | **Security** | bcrypt, JWT, TOTP 2FA, impersonation, audit log |
 | **SFTP** | Built-in SFTP server on port 3004 |
 
+Full, verified feature-by-feature breakdown: **[docs/FEATURES.md](docs/FEATURES.md)**.
+
 ---
 
 ## 🚀 Quick start
