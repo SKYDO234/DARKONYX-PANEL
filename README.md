@@ -18,7 +18,7 @@
 
 | | |
 |---|---|
-| **Live console** | WebSocket stream, ANSI colour, command history, quick commands, live CPU / RAM / disk gauges |
+| **Live console** | Full console workspace: WebSocket stream with auto-reconnect, ANSI colour, search/filter with match stepping, wrap + text-size + timestamp toggles, command history recall (↑/↓), log export, jump-to-latest, live CPU / RAM / disk / network cards and rolling charts |
 | **Power controls** | Start · Restart · Stop · Force kill, with suspend protection |
 | **File manager** | Browse, create, edit, rename, delete, upload, download, backup-and-restore of any file |
 | **Server software** | One-click jar installs across 16 Minecraft flavours via mcjars |
@@ -26,10 +26,11 @@
 | **Schedules** | Cron-driven start / stop / restart / command / backup |
 | **Players & worlds** | Online list with op/kick/ban, world activate / clone / reset |
 | **Sub-users** | Granular per-server permissions on ~15 capabilities |
-| **Marketplace** | Curated maps, Modrinth/CurseForge search, plugin & mod install |
+| **Marketplace** | Curated maps, Modrinth/CurseForge search, plugin & mod install — also inside every server's console area, with an Installed tab read from disk |
 | **Administration** | Command center, fleet view, users, nodes, network, databases, backups, settings, API keys |
 | **Security** | bcrypt, JWT, TOTP 2FA, impersonation, audit log |
 | **SFTP** | Built-in SFTP server on port 3004 |
+| **Branding** | Wallpaper (image or video, bundled presets, 4K gallery, upload), live blur/veil sliders, logo + favicon, all applied instantly and persisted in the panel DB |
 
 Full, verified feature-by-feature breakdown: **[docs/FEATURES.md](docs/FEATURES.md)**.
 
@@ -154,10 +155,11 @@ Available suites:
 |---|---|
 | `npm run test:api` | 155 endpoint checks across 27 groups |
 | `npm run test:data` | 31 checks that no telemetry is fabricated (CPU, RAM, disk, network, Docker, DB, logs) |
-| `npm run test:layout` | 18 checks on overlays, z-index, click targets and design-system coverage |
+| `npm run test:layout` | 24 checks on overlays, z-index, click targets, server-workspace chrome and design-system coverage |
 | `npm run test:ui` | 28 checks driving the real SPA in jsdom — login, navigation, all 28 routes, node panels, bulk actions |
 | `npm run test:clicks` | clicks every control on all 28 routes; fails on any dead button |
-| `npm run test:page` | loads the page over HTTP and executes the real `<script src>` tags, then clicks through the sidebar |
+| `npm run test:page` | loads the page over HTTP and executes the real `<script src>` tags, then clicks through the sidebar and drives the console |
+| `npm run test:branding` | 34 checks that a chosen wallpaper, blur and veil reach the page (login included), the branding studio previews live, and the server marketplace reads real files from disk |
 
 Asset URLs are content-hashed and the running page checks `/api/build`, so a
 tab left open across an upgrade reloads itself instead of pairing old

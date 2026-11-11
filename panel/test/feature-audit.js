@@ -215,12 +215,23 @@ async function test(group, label, method, path, body, opts = {}) {
 
     /* subusers */
     await test('subusers', 'list subusers', 'GET', `/api/servers/${sid}/subusers`);
-    const sub = await test('subusers', 'add subuser', 'POST', `/api/servers/${sid}/subusers`, { userIdentifier: 'nyx', permissions: ['console.view', 'files.read'] });
+    // The users block deletes its fixture before we get here, so create a
+    // throwaway account for the subuser test — a hardcoded username would pass
+    // on a dirty database and fail on a clean install.
+    const sm = Date.now().toString().slice(-5);
+    const subFixture = await call('POST', '/api/admin/users', {
+      username: `subaudit${sm}`, email: `subaudit${sm}@darkonyx.local`, password: 'auditpass1', role: 'user'
+    });
+    const subFixtureName = (subFixture.data && subFixture.data.username) || `subaudit${sm}`;
+    const subIdentifier = subFixtureName;
+    const sub = await test('subusers', 'add subuser', 'POST', `/api/servers/${sid}/subusers`, { userIdentifier: subIdentifier, permissions: ['console.view', 'files.read'] });
     const subId = sub.data && sub.data.subuser && sub.data.subuser.id;
     if (subId) {
       await test('subusers', 'update subuser', 'PUT', `/api/servers/${sid}/subusers/${subId}`, { permissions: ['console.view'] });
       await test('subusers', 'delete subuser', 'DELETE', `/api/servers/${sid}/subusers/${subId}`);
     }
+    const subFixtureId = subFixture.data && subFixture.data.userId;
+    if (subFixtureId) await call('DELETE', `/api/admin/users/${subFixtureId}`);
 
     /* network */
     await test('network', 'server network', 'GET', `/api/servers/${sid}/network`);

@@ -110,8 +110,15 @@ const api = async (method, url, token, body) => {
   ok('node RAM used is plausible', s1.ram_used_mb > 0 && s1.ram_used_mb < s1.ram_total_mb, `${s1.ram_used_mb} MB`);
   ok('node CPU is within 25 points of the host', Math.abs(s1.cpu_percent - hostCpu) <= 25,
     `panel ${s1.cpu_percent}% / host ${hostCpu}%`);
-  ok('node CPU changes between samples (it is live)', s1.cpu_percent !== s2.cpu_percent || s1.cpu_percent === hostCpu,
-    `${s1.cpu_percent}% → ${s2.cpu_percent}%`);
+  // Rounded to whole percent, a quiet box can legitimately sit on the same
+  // figure twice in a row. Sample a few times: a frozen gauge never moves.
+  const cpuSeries = [s1.cpu_percent, s2.cpu_percent];
+  for (let i = 0; i < 3; i++) {
+    await sleep(1100);
+    cpuSeries.push((await api('GET', '/api/admin/nodes/1/stats', token)).data.stats.cpu_percent);
+  }
+  ok('node CPU changes between samples (it is live)', new Set(cpuSeries).size > 1,
+    cpuSeries.map((v) => v + '%').join(' → '));
   ok('node disk is measured from the filesystem', s1.ssd_measured === true, `${s1.ssd_used_gb} GB / ${s1.ssd_total_gb} GB`);
   ok('node disk does not report a canned 100/25 GB', !(s1.ssd_total_gb === 100 && s1.ssd_used_gb === 25));
 

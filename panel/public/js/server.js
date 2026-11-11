@@ -6,6 +6,8 @@
   const { esc, fmt, API, Store, toast, modal, confirmDialog, emptyState, meter, statusChip } = window.el;
   const { serverAddress, typeLabel } = window.DKX.Views.portal;
 
+  const POWER_LABEL = { start: 'Start', restart: 'Restart', stop: 'Stop', kill: 'Force stop' };
+
   const TABS = [
     { id: 'console', label: 'Console', icon: 'terminal' },
     { id: 'files', label: 'Files', icon: 'folder' },
@@ -17,20 +19,23 @@
     { id: 'databases', label: 'Databases', icon: 'database' },
     { id: 'users', label: 'Sub-users', icon: 'shield' },
     { id: 'addons', label: 'Addons', icon: 'puzzle' },
+    { id: 'marketplace', label: 'Marketplace', icon: 'package' },
+    { id: 'activity', label: 'Activity', icon: 'activity' },
     { id: 'settings', label: 'Settings', icon: 'sliders' }
   ];
 
-  const state = { server: null, id: null, ws: null, consoleTab: 'console', stats: {} };
+  const state = { server: null, id: null, ws: null, consoleTab: 'console', stats: {}, history: '' };
 
   /* ------------------------------------------------------------- ws console */
   function connectConsole(onLine, onStats, onStatus) {
-    disconnectConsole();
+    closeSocket();
     if (!Store.token || !state.id) return;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     let ws;
     try { ws = new WebSocket(`${proto}://${location.host}/ws/servers/${state.id}/console?token=${encodeURIComponent(Store.token)}`); }
     catch (e) { return; }
     state.ws = ws;
+    state.retries = 0;
     ws.onmessage = (ev) => {
       let msg; try { msg = JSON.parse(ev.data); } catch (e) { return; }
       if (msg.type === 'console' || msg.type === 'history') onLine && onLine(msg.data);
@@ -38,11 +43,32 @@
       else if (msg.type === 'status') { onStatus && onStatus(msg.status, msg.stats); if (msg.stats) onStats && onStats(msg.stats); }
       else if (msg.type === 'error') toast(msg.message, 'err');
     };
-    ws.onclose = () => { if (state.ws === ws) state.ws = null; };
+    // A dropped socket used to stay dropped until the page was reloaded. Retry
+    // with backoff while this socket is still the current one; the REST stats
+    // poll keeps the numbers moving in the meantime.
+    ws.onclose = () => {
+      if (state.ws !== ws) return;
+      state.ws = null;
+      if (state.destroyed || !Store.token || !state.id) return;
+      state.retries = (state.retries || 0) + 1;
+      if (state.retries > 6) { toast('Live stream lost — reopen the console to reconnect', 'err'); return; }
+      clearTimeout(state.reconnectTimer);
+      state.reconnectTimer = setTimeout(() => {
+        if (!state.destroyed && !state.ws) connectConsole(onLine, onStats, onStatus);
+      }, Math.min(8000, 600 * Math.pow(2, state.retries - 1)));
+    };
+    ws.onerror = () => { try { ws.close(); } catch (e) {} };
   }
-  function disconnectConsole() {
+  function closeSocket() {
     try { state.ws && state.ws.close(); } catch (e) {}
     state.ws = null;
+  }
+  function disconnectConsole() {
+    state.destroyed = true;
+    state.retries = 0;
+    clearTimeout(state.reconnectTimer);
+    closeSocket();
+    if (window.DKX.Console) window.DKX.Console.destroy();
     document.title = (Store.settings && Store.settings.panel_name) || 'DARKONYX PANEL';
   }
 
@@ -64,7 +90,10 @@
   /* ------------------------------------------------------------------ shell */
   async function shell(host, id, tab) {
     state.id = id;
+    state.destroyed = false;
+    state.retries = 0;
     if (tab !== 'console') disconnectConsole();
+    else closeSocket();
 
     let payload;
     try { payload = await API.get(`/api/servers/${id}`); }
@@ -72,63 +101,80 @@
 
     const s = payload.server;
     state.server = s;
+    state.history = payload.console || '';
     const perms = payload.permissions || [];
     window.DKX.Shell.setCrumbs([{ label: 'Servers', hash: '/portal/servers' }, { label: s.name }]);
 
     const suspended = !!s.is_suspended;
     host.innerHTML = `
-      <div class="card card-pad" style="padding:18px 20px">
-        <div class="row wrap gap-14">
-          <div class="srv-icon" style="width:46px;height:46px;flex-basis:46px">${I('box')}</div>
-          <div class="grow" style="min-width:180px">
-            <div class="row gap-8 wrap"><h2 style="font-size:19px">${esc(s.name)}</h2><span id="srv-status-chip">${statusChip(suspended ? 'suspended' : s.status)}</span></div>
-            <div class="row gap-8 wrap tiny dim mt-8">
+      <div class="srv-head" id="srv-head">
+        <div class="srv-head-id">
+          <div class="srv-icon" style="width:42px;height:42px;flex-basis:42px">${I('box')}</div>
+          <div class="grow" style="min-width:0">
+            <div class="row gap-8 wrap"><h2 class="srv-title" title="${esc(s.name)}">${esc(s.name)}</h2><span id="srv-status-chip">${statusChip(suspended ? 'suspended' : s.status)}</span></div>
+            <div class="row gap-8 wrap tiny dim mt-6 srv-meta">
               <span>${esc(typeLabel(s.server_type))}</span><span>·</span>
               <span class="mono">${esc(serverAddress(s))}</span><span>·</span>
               <span>${esc(s.node_name || 'local node')}</span>
               ${s.jar_type ? `<span>·</span><span>${esc(s.jar_type)} ${esc(s.jar_version || '')}</span>` : ''}
             </div>
           </div>
-          <div class="row gap-8 wrap">
-            <div class="power-group">
-              <button class="power-btn start" data-pw="start" ${suspended ? 'disabled' : ''} title="Start">${I('play')}</button>
-              <button class="power-btn restart" data-pw="restart" ${suspended ? 'disabled' : ''} title="Restart">${I('restart')}</button>
-              <button class="power-btn stop" data-pw="stop" title="Stop">${I('stop')}</button>
-              <button class="power-btn kill" data-pw="kill" title="Force kill">${I('skull')}</button>
-            </div>
-            <a class="btn btn-sm" href="#/portal/servers">${I('chevronLeft')} All servers</a>
+        </div>
+        <div class="srv-live" id="live-strip">
+          ${[
+        ['cpu', 'CPU'], ['memory', 'RAM'], ['disk', 'Disk'], ['uptime', 'Uptime']
+      ].map(([key, label]) => `<div class="srv-live-cell">
+              <span class="srv-live-k">${label}</span><b class="mono srv-live-v" id="ls-${key}-v">—</b>
+              <div id="ls-${key}-b" class="srv-live-bar">${meter(0)}</div></div>`).join('')}
+        </div>
+        <div class="srv-tabs-row">
+          <div class="tabs srv-tabs" id="srv-tabs" role="tablist">
+            ${TABS.map((t) => `<button class="tab ${t.id === tab ? 'active' : ''}" data-tab="${t.id}" role="tab" aria-selected="${t.id === tab}">${I(t.icon)} <span>${t.label}</span></button>`).join('')}
           </div>
         </div>
-        ${suspended ? `<div class="banner-strip mt-14" style="border-color:rgba(251,113,133,.35);background:linear-gradient(100deg,rgba(251,113,133,.16),transparent)">${I('alert')}<span>This server is suspended${s.expiration_date ? ` (expired ${esc(fmt.date(s.expiration_date, false))})` : ''}. Power actions are disabled until an administrator renews it.</span></div>` : ''}
-        <div class="row gap-14 mt-14 wrap" id="live-strip">
-          ${[
-        ['CPU', 'cpu', '%'], ['Memory', 'memory', 'MB'], ['Disk', 'disk', 'MB'], ['Uptime', 'uptime', '']
-      ].map(([label, key]) => `<div class="row gap-8" style="flex:1;min-width:150px">
-            <div class="grow"><div class="row tiny dim" style="justify-content:space-between"><span>${label}</span><b class="mono" id="ls-${key}-v">—</b></div>
-            <div class="mt-8" id="ls-${key}-b">${meter(0)}</div></div></div>`).join('')}
-        </div>
       </div>
 
-      <div class="tabs mt-14" id="srv-tabs">
-        ${TABS.map((t) => `<button class="tab ${t.id === tab ? 'active' : ''}" data-tab="${t.id}">${I(t.icon)} ${t.label}</button>`).join('')}
+      ${suspended ? `<div class="banner-strip mt-14" style="border-color:rgba(251,113,133,.35);background:linear-gradient(100deg,rgba(251,113,133,.16),transparent)">${I('alert')}<span>This server is suspended${s.expiration_date ? ` (expired ${esc(fmt.date(s.expiration_date, false))})` : ''}. Power actions are disabled until an administrator renews it.</span></div>` : ''}
+
+      <div class="power-bar" id="power-bar">
+        <div class="power-group" role="group" aria-label="Server power">
+          <button class="power-btn start" data-pw="start" ${suspended ? 'disabled' : ''} title="Start server"><span class="power-ico">${I('play')}</span><span class="power-label">Start</span></button>
+          <button class="power-btn restart" data-pw="restart" ${suspended ? 'disabled' : ''} title="Restart server"><span class="power-ico">${I('restart')}</span><span class="power-label">Restart</span></button>
+          <button class="power-btn stop" data-pw="stop" ${suspended ? 'disabled' : ''} title="Stay-stopped: graceful shutdown"><span class="power-ico">${I('stop')}</span><span class="power-label">Stop</span></button>
+          <button class="power-btn kill" data-pw="kill" ${suspended ? 'disabled' : ''} title="Force stop: terminate the process immediately"><span class="power-ico">${I('skull')}</span><span class="power-label">Force stop</span></button>
+        </div>
+        <div class="power-hint" id="power-hint">${suspended ? 'Power actions disabled while suspended' : 'Ready'}</div>
+        <a class="btn btn-sm btn-ghost power-back" href="#/portal/servers">${I('chevronLeft')} All servers</a>
       </div>
-      <div id="srv-tab-body" class="mt-14"></div>`;
+
+      <div id="srv-tab-body" class="srv-tab-body mt-14"></div>`;
 
     host.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => { location.hash = `#/server/${id}/${b.dataset.tab}`; });
+    // the tab strip is wider than a phone: keep the active tab in view
+    const activeTab = host.querySelector('#srv-tabs .tab.active');
+    if (activeTab && activeTab.scrollIntoView) {
+      try { activeTab.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) { /* older engines */ }
+    }
+    const hint = host.querySelector('#power-hint');
     const power = async (action) => {
+      const label = POWER_LABEL[action] || action;
+      if (hint) hint.textContent = `${label} requested…`;
       try {
-        await API.post(`/api/servers/${id}/power`, { action });
-        toast(`${action[0].toUpperCase() + action.slice(1)} signal sent`, 'ok', 'Power action');
+        const r = await API.post(`/api/servers/${id}/power`, { action });
+        toast(r.message || `${label} requested`, 'ok', 'Power action');
         updateStatus(action === 'stop' || action === 'kill' ? 'stopping' : 'starting');
-      } catch (e) { toast(e.message, 'err'); }
+      } catch (e) {
+        if (hint) hint.textContent = e.message;
+        toast(e.message, 'err');
+      }
     };
     host.querySelectorAll('[data-pw]').forEach((b) => b.onclick = () => {
       const action = b.dataset.pw;
       if (action === 'kill') {
         return window.el.confirmDialog({
-          title: 'Force kill server?',
-          message: 'The process is terminated immediately — unsaved world data can be lost. Use only when the server is unresponsive.',
-          confirmLabel: 'Force kill',
+          title: 'Force stop the server?',
+          message: 'The process is terminated immediately with SIGKILL — unsaved world data can be lost. Use only when the server is unresponsive.',
+          confirmLabel: 'Force stop',
           onConfirm: () => power('kill')
         });
       }
@@ -146,7 +192,9 @@
       console: renderConsole, files: renderFiles, players: renderPlayers, worlds: renderWorlds,
       backups: renderBackups, schedules: renderSchedules, network: renderNetwork,
       users: renderSubusers, addons: renderAddons, settings: renderSettings,
-      databases: (h, srv) => (window.DKX.Views.server.databases ? window.DKX.Views.server.databases(h, srv.id) : renderConsole(h, srv))
+      databases: (h, srv) => (window.DKX.Views.server.databases ? window.DKX.Views.server.databases(h, srv.id) : renderConsole(h, srv)),
+      activity: renderActivity,
+      marketplace: renderMarketplace
     };
     (renderers[tab] || renderConsole)(body, s, perms);
   }
@@ -182,75 +230,39 @@
   }
 
   /* ---------------------------------------------------------------- console */
+  /* The console workspace lives in js/console.js; this function only owns the
+     socket and the data the console cannot fetch by itself. */
   function renderConsole(host, s) {
-    host.innerHTML = `
-      <div class="split">
-        <div class="col gap-14">
-          <div class="console-shell" style="height:min(58vh,540px)">
-            <div class="console-bar">
-              <div class="console-lights"><i></i><i></i><i></i></div>
-              <span class="console-title">${esc(s.name)} — live console</span>
-              <span class="grow"></span>
-              <button class="btn btn-xs" id="con-clear">${I('trash')} Clear</button>
-            </div>
-            <div class="console-out" id="con-out"><span class="ansi-gray">Connecting to daemon stream…</span></div>
-            <form class="console-in" id="con-form">
-              <span class="prompt">›</span>
-              <input id="con-cmd" placeholder="Type a command and press Enter (e.g. say hello, list, op player)" autocomplete="off" spellcheck="false" />
-              <button class="btn btn-sm btn-primary" type="submit">${I('arrowRight')} Send</button>
-            </form>
-          </div>
-        </div>
-        <div class="col gap-14">
-          <div class="card">
-            <div class="card-head"><h3>Connection</h3></div>
-            <div class="card-body">
-              <div class="section-label">Game address</div>
-              ${window.el.copyField(serverAddress(s), 'Copy address')}
-              <div class="section-label mt-14">SFTP</div>
-              ${window.el.copyField(`sftp://${s.sftp_username || 'user.' + s.id}@${s.sftp_host || location.hostname}:${s.sftp_port || 3004}`, 'SFTP')}
-              <div class="kv mt-14"><span class="k">Password</span><span class="v">your panel password</span></div>
-              <div class="kv"><span class="k">Node</span><span class="v">${esc(s.node_name || 'local')}</span></div>
-              <div class="kv"><span class="k">Allocation</span><span class="v mono">${esc(s.ip || '—')}:${esc(s.port || '—')}</span></div>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-head"><h3>Quick commands</h3></div>
-            <div class="card-body col gap-8">
-              ${[['list', 'Show online players'], ['say Server restarting soon', 'Broadcast message'], ['save-all', 'Force world save'], ['whitelist on', 'Enable whitelist'], ['tps', 'Server tick rate']]
-        .map(([cmd, label]) => `<button class="btn btn-sm" data-quick="${esc(cmd)}" style="justify-content:flex-start">${I('bolt')}<span class="mono" style="font-size:11.5px">${esc(cmd)}</span><span class="grow"></span><span class="dim tiny">${esc(label)}</span></button>`).join('')}
-            </div>
-          </div>
-        </div>
-      </div>`;
-
-    const out = document.getElementById('con-out');
-    out.innerHTML = '';
-    let buffer = '';
-    const write = (chunk) => {
-      buffer += chunk;
-      if (buffer.length > 400000) buffer = buffer.slice(-200000);
-      const nearBottom = out.scrollHeight - out.scrollTop - out.clientHeight < 120;
-      out.innerHTML = ansiToHtml(buffer);
-      if (nearBottom) out.scrollTop = out.scrollHeight;
+    const perms = state.server ? (state.server.permissions || []) : [];
+    const Console = window.DKX.Console;
+    if (!Console) {
+      host.innerHTML = `<div class="card card-pad">${emptyState('alert', 'Console module missing', 'window.DKX.Console is not loaded — reload the panel.')}</div>`;
+      return;
+    }
+    const statsApi = async () => {
+      const r = await API.get(`/api/servers/${s.id}/stats`);
+      return r.stats ? { ...r.stats, permissions: perms } : null;
     };
-    connectConsole(write, (st) => paintStats(st), (st) => {
-      updateStatus(st);
-      // keep the tab title in sync with the live console so background tabs stay useful
-      if (st) document.title = `${st === 'running' ? '● ' : '○ '}${s.name} — DARKONYX`;
+
+    Console.render(host, s, {
+      address: serverAddress(s),
+      history: state.history || '',
+      connect: (onLine, onStats, onStatus) => {
+        connectConsole(
+          (chunk) => onLine(chunk),
+          (stats) => onStats(stats),
+          (status, stats) => {
+            onStatus(status);
+            updateStatus(status, stats);
+          }
+        );
+      },
+      ws: () => state.ws,
+      sendHttp: async (command) => { await API.post(`/api/servers/${s.id}/command`, { command }); },
+      stats: statsApi,
+      setStats: (stats) => { state.stats = stats; paintStats(stats); },
+      setStatus: (status) => updateStatus(status)
     });
-
-    document.getElementById('con-clear').onclick = () => { buffer = ''; out.innerHTML = ''; };
-    const form = document.getElementById('con-form');
-    const cmd = document.getElementById('con-cmd');
-    const send = async (text) => {
-      if (!text.trim()) return;
-      if (state.ws && state.ws.readyState === 1) state.ws.send(JSON.stringify({ action: 'command', command: text }));
-      else { try { await API.post(`/api/servers/${s.id}/command`, { command: text }); } catch (e) { toast(e.message, 'err'); } }
-    };
-    form.onsubmit = (e) => { e.preventDefault(); send(cmd.value); cmd.value = ''; };
-    host.querySelectorAll('[data-quick]').forEach((b) => b.onclick = () => send(b.dataset.quick));
-    setTimeout(() => cmd.focus(), 200);
   }
 
   /* ------------------------------------------------------------------ files */
@@ -437,7 +449,7 @@
       const rows = [];
       online.forEach((p) => rows.push({ ...p, online: true }));
       known.forEach((p) => { if (!onlineNames.has(p.name)) rows.push({ ...p, online: false }); });
-      document.getElementById('pl-body').innerHTML = rows.length ? `
+      (document.getElementById('pl-body') || {}).innerHTML = rows.length ? `
         <div class="table-wrap"><table class="data">
           <thead><tr><th>Player</th><th>State</th><th>Playtime / Last seen</th><th></th></tr></thead>
           <tbody>${rows.map((p) => `<tr>
@@ -457,7 +469,7 @@
         catch (e) { toast(e.message, 'err'); }
       });
     } catch (e) {
-      document.getElementById('pl-body').innerHTML = emptyState('info', 'Player list unavailable', e.message);
+      (document.getElementById('pl-body') || {}).innerHTML = emptyState('info', 'Player list unavailable', e.message);
     }
   }
 
@@ -467,12 +479,14 @@
       <div class="card-head"><div class="grow"><h3>Worlds</h3><div class="card-sub">Activate, clone, reset or download world folders</div></div>
         <button class="btn btn-sm" id="w-refresh">${I('refresh')}</button></div>
       <div id="w-body">${window.el.skeleton(4)}</div></div>`;
+    const wBody = () => document.getElementById('w-body');
     const paint = async () => {
       try {
         const r = await API.get(`/api/servers/${s.id}/worlds`);
         const worlds = r.worlds || [];
         const activeName = r.activeWorld;
-        document.getElementById('w-body').innerHTML = worlds.length ? `
+        const wb = wBody(); if (!wb) return; // tab switched away while loading
+        wb.innerHTML = worlds.length ? `
           <div class="table-wrap"><table class="data">
             <thead><tr><th>World</th><th>Size</th><th>Active</th><th>Modified</th><th></th></tr></thead>
             <tbody>${worlds.map((w) => `<tr>
@@ -498,9 +512,10 @@
           title: `Delete ${b.dataset.del}?`, message: 'The world folder will be permanently removed from disk.', confirmLabel: 'Delete',
           onConfirm: async () => { await API.post(`/api/servers/${s.id}/worlds/delete`, { worldName: b.dataset.del }); toast('World deleted', 'ok'); paint(); }
         }));
-      } catch (e) { document.getElementById('w-body').innerHTML = emptyState('info', 'Worlds unavailable', e.message); }
+      } catch (e) { const wb = wBody(); if (wb) wb.innerHTML = emptyState('info', 'Worlds unavailable', e.message); }
     };
-    document.getElementById('w-refresh').onclick = paint;
+    const wRefresh = document.getElementById('w-refresh');
+    if (wRefresh) wRefresh.onclick = paint;
     paint();
   }
 
@@ -514,7 +529,7 @@
       try {
         const r = await API.get(`/api/servers/${s.id}/backups`);
         const backups = r.backups || [];
-        document.getElementById('b-body').innerHTML = backups.length ? `
+        (document.getElementById('b-body') || {}).innerHTML = backups.length ? `
           <div class="table-wrap"><table class="data">
             <thead><tr><th>Name</th><th>Size</th><th>Type</th><th>Created</th><th></th></tr></thead>
             <tbody>${backups.map((b) => `<tr>
@@ -544,7 +559,7 @@
           title: 'Delete backup?', message: 'This permanently removes the archive from disk.', confirmLabel: 'Delete',
           onConfirm: async () => { await API.del(`/api/servers/${s.id}/backups/${b.dataset.del}`); toast('Backup deleted', 'ok'); paint(); }
         }));
-      } catch (e) { document.getElementById('b-body').innerHTML = emptyState('info', 'Backups unavailable', e.message); }
+      } catch (e) { (document.getElementById('b-body') || {}).innerHTML = emptyState('info', 'Backups unavailable', e.message); }
     };
     const create = async () => {
       try { toast('Creating backup — this can take a moment…', 'info'); await API.post(`/api/servers/${s.id}/backups`, { name: `manual-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}` }); toast('Backup created', 'ok'); paint(); }
@@ -565,7 +580,7 @@
       try {
         const r = await API.get(`/api/servers/${s.id}/schedules`);
         const list = r.schedules || [];
-        document.getElementById('sc-body').innerHTML = list.length ? `
+        (document.getElementById('sc-body') || {}).innerHTML = list.length ? `
           <div class="table-wrap"><table class="data">
             <thead><tr><th>Name</th><th>Cron</th><th>Action</th><th>Active</th><th>Last run</th><th></th></tr></thead>
             <tbody>${list.map((x) => `<tr>
@@ -587,7 +602,7 @@
           title: 'Delete schedule?', message: 'This schedule will stop running immediately.', confirmLabel: 'Delete',
           onConfirm: async () => { await API.del(`/api/servers/${s.id}/schedules/${b.dataset.del}`); paint(); }
         }));
-      } catch (e) { document.getElementById('sc-body').innerHTML = emptyState('info', 'Schedules unavailable', e.message); }
+      } catch (e) { (document.getElementById('sc-body') || {}).innerHTML = emptyState('info', 'Schedules unavailable', e.message); }
     };
     document.getElementById('sc-add').onclick = () => {
       window.el.modal({
@@ -633,7 +648,7 @@
     try {
       const r = await API.get(`/api/servers/${s.id}/network`);
       const allocs = r.allocations || r.network || [];
-      document.getElementById('net-body').innerHTML = allocs.length ? `<div class="table-wrap"><table class="data">
+      (document.getElementById('net-body') || {}).innerHTML = allocs.length ? `<div class="table-wrap"><table class="data">
         <thead><tr><th>IP</th><th>Port</th><th>Primary</th><th></th></tr></thead>
         <tbody>${allocs.map((a) => `<tr><td class="mono">${esc(a.ip)}</td><td class="mono">${esc(a.port)}</td>
           <td>${Number(a.id) === Number(s.allocation_id) ? '<span class="chip chip-live">Primary</span>' : '<span class="chip">Secondary</span>'}</td>
@@ -643,7 +658,7 @@
         try { await API.post(`/api/servers/${s.id}/network/primary`, { allocationId: b.dataset.primary }); toast('Primary allocation updated', 'ok'); window.DKX.Router.resolve(); }
         catch (e) { toast(e.message, 'err'); }
       });
-    } catch (e) { document.getElementById('net-body').innerHTML = emptyState('info', 'Network unavailable', e.message); }
+    } catch (e) { (document.getElementById('net-body') || {}).innerHTML = emptyState('info', 'Network unavailable', e.message); }
   }
 
   /* --------------------------------------------------------------- subusers */
@@ -657,7 +672,7 @@
       try {
         const r = await API.get(`/api/servers/${s.id}/subusers`);
         const subs = r.subusers || [];
-        document.getElementById('su-body').innerHTML = subs.length ? `<div class="table-wrap"><table class="data">
+        (document.getElementById('su-body') || {}).innerHTML = subs.length ? `<div class="table-wrap"><table class="data">
           <thead><tr><th>User</th><th>Email</th><th>Permissions</th><th></th></tr></thead>
           <tbody>${subs.map((u) => `<tr>
             <td><b>${esc(u.username)}</b></td><td class="dim">${esc(u.email)}</td>
@@ -669,7 +684,7 @@
           title: 'Remove sub-user?', message: 'They will immediately lose access to this server.', confirmLabel: 'Remove',
           onConfirm: async () => { await API.del(`/api/servers/${s.id}/subusers/${b.dataset.del}`); paint(); }
         }));
-      } catch (e) { document.getElementById('su-body').innerHTML = emptyState('info', 'Sub-users unavailable', e.message); }
+      } catch (e) { (document.getElementById('su-body') || {}).innerHTML = emptyState('info', 'Sub-users unavailable', e.message); }
     };
     document.getElementById('su-add').onclick = () => {
       window.el.modal({
@@ -695,6 +710,276 @@
         }
       });
     };
+    paint();
+  }
+
+  /* ------------------------------------------------------------ marketplace */
+  /* Catalogue + one-click install straight into THIS server's plugins/ or
+     mods/ folder, plus the files already installed. The catalogue comes from
+     the public /api/marketplace endpoints; installed state is read from disk
+     by the server-scoped /api/servers/:id/addons/marketplace endpoint. */
+  async function renderMarketplace(host, s) {
+    const loader = String(s.jar_type || '').toLowerCase();
+    const isModServer = ['fabric', 'forge', 'neoforge', 'quilt'].includes(loader);
+    const isMinecraft = s.server_type === 'minecraft';
+    const st = { tab: 'plugins', query: '', type: isModServer ? 'mod' : 'plugin', kind: 'modrinth', items: [], loaded: false };
+
+    if (!isMinecraft) {
+      host.innerHTML = `<div class="card card-pad">${emptyState('package', 'Marketplace is for Minecraft servers',
+        `This is a ${esc(typeLabel(s.server_type))} server — plugins and mods cannot be installed into it. Use Files to manage its code.`)}</div>`;
+      return;
+    }
+
+    host.innerHTML = `<div class="mk-view">
+      <div class="card">
+        <div class="card-head">
+          <div class="grow"><h3>Marketplace</h3>
+            <div class="card-sub">Resources install into <span class="mono">${isModServer ? 'mods/' : 'plugins/'}</span> on <b>${esc(s.name)}</b> — restart the server afterwards to load them</div></div>
+          <div class="row gap-8">
+            <div class="input-group" style="width:260px">
+              <input class="input" id="mk-q" placeholder="Search ${isModServer ? 'mods' : 'plugins'}…" value="essentials" />
+            </div>
+            <button class="btn btn-sm" id="mk-go">${I('search')} Search</button>
+          </div>
+        </div>
+        <div class="mk-body">
+          <div class="tabs" id="mk-tabs">
+            <button class="tab active" data-mk="catalogue">${I('package')} Catalogue</button>
+            <button class="tab" data-mk="installed">${I('archive')} Installed <span class="mk-count" id="mk-installed-count">—</span></button>
+            <button class="tab" data-mk="worlds">${I('map')} Worlds</button>
+          </div>
+          <div id="mk-pane" class="mt-14">${window.el.skeleton(4)}</div>
+        </div>
+      </div>
+    </div>`;
+
+    const pane = host.querySelector('#mk-pane');
+    const qInput = host.querySelector('#mk-q');
+
+    const setTab = (t) => {
+      st.tab = t;
+      host.querySelectorAll('[data-mk]').forEach((b) => b.classList.toggle('active', b.dataset.mk === t));
+      paint();
+    };
+    host.querySelectorAll('[data-mk]').forEach((b) => b.onclick = () => setTab(b.dataset.mk));
+
+    const runSearch = () => { st.query = (qInput.value || '').trim(); st.loaded = false; paint(); };
+    host.querySelector('#mk-go').onclick = runSearch;
+    qInput.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); runSearch(); } };
+
+    async function refreshInstalledCount() {
+      try {
+        const r = await API.get(`/api/servers/${s.id}/addons/marketplace`);
+        const el = host.querySelector('#mk-installed-count');
+        if (el) el.textContent = String((r.installed || []).length);
+      } catch (e) { /* count is decoration; the tab itself reports errors */ }
+    }
+
+    async function paint() {
+      if (st.tab === 'installed') return paintInstalled();
+      if (st.tab === 'worlds') return paintWorlds();
+      return paintCatalogue();
+    }
+
+    function offlineMessage(e) {
+      const text = String(e && e.message || '');
+      return /network|socket|tls|cert|fetch|unreachable|ENOTFOUND|ECONN|EAI_AGAIN|Modrinth|502/i.test(text);
+    }
+
+    async function paintCatalogue() {
+      pane.innerHTML = window.el.skeleton(4);
+      if (st.kind === 'worlds') return paintWorlds();
+      try {
+        const r = await API.get(`/api/marketplace/search?query=${encodeURIComponent(st.query || 'essentials')}&limit=24&projectType=${encodeURIComponent(st.type)}`);
+        const hits = r.projects || r.hits || r.results || [];
+        st.items = hits;
+        pane.innerHTML = hits.length ? `<div class="mk-grid">${hits.map((h) => `
+          <article class="mk-card">
+            <div class="mk-card-head">
+              <div class="mk-ico">${h.iconUrl ? `<img src="${esc(h.iconUrl)}" alt="" onerror="this.remove()"/>` : I(st.type === 'mod' ? 'puzzle' : 'package')}</div>
+              <div class="grow" style="min-width:0">
+                <h4 title="${esc(h.title || h.slug)}">${esc(h.title || h.slug)}</h4>
+                <div class="mk-meta"><span>${esc(h.author || 'community')}</span><span>·</span><span>↓ ${esc(fmt.num(h.downloads || 0))}</span></div>
+              </div>
+            </div>
+            <p class="mk-desc">${esc(String(h.description || '').slice(0, 120))}${String(h.description || '').length > 120 ? '…' : ''}</p>
+            <div class="row wrap gap-4">${(h.displayCategories && h.displayCategories.length ? h.displayCategories : h.categories || []).slice(0, 3)
+        .map((c) => `<span class="chip chip-plain tiny">${esc(c)}</span>`).join('')}</div>
+            <div class="mk-foot">
+              <span class="dim tiny">for ${esc(s.jar_type || 'minecraft')}${s.jar_version ? ' ' + esc(s.jar_version) : ''}</span>
+              <button class="btn btn-sm btn-primary" data-install="${esc(h.slug || h.id)}" data-title="${esc(h.title || h.slug)}">${I('download')} Install</button>
+            </div>
+          </article>`).join('')}</div>`
+          : emptyState('search', 'Nothing found', `No ${st.type}s matched “${esc(st.query || 'essentials')}”.`);
+        pane.querySelectorAll('[data-install]').forEach((b) => b.onclick = () => install(b));
+      } catch (e) {
+        pane.innerHTML = offlineMessage(e)
+          ? emptyState('globe', 'Marketplace is offline',
+            'This host cannot reach the Modrinth catalogue right now. Worlds below are curated and work offline; you can also upload jars with Files.')
+          : emptyState('alert', 'Marketplace unavailable', e.message);
+      }
+    }
+
+    /* Resolve the best file for this server's loader + version, then install. */
+    async function install(btn) {
+      const slug = btn.dataset.install;
+      const title = btn.dataset.title;
+      btn.disabled = true;
+      const original = btn.innerHTML;
+      btn.innerHTML = 'Resolving…';
+      try {
+        const v = await API.get(`/api/marketplace/project/${encodeURIComponent(slug)}/versions`);
+        const versions = (v.versions || []).filter((x) => x.file && x.file.url);
+        if (!versions.length) throw new Error('This project has no downloadable file.');
+        const best = (s.jar_version ? versions.find((x) => (x.gameVersions || []).includes(s.jar_version)) : null) || versions[0];
+        btn.innerHTML = 'Installing…';
+        const r = await API.post('/api/marketplace/install', {
+          serverId: s.id,
+          downloadUrl: best.file.url,
+          fileName: best.file.filename || `${slug}.jar`,
+          targetType: st.type,
+          projectName: title
+        });
+        btn.innerHTML = `${I('check')} Installed`;
+        toast(`${title} → ${r.directory || (st.type === 'mod' ? 'mods/' : 'plugins/')} · restart to load`, 'ok', 'Installed');
+        refreshInstalledCount();
+        if (!r.restarted) window.el.toast('Restart the server to activate it', 'info', 'Reminder');
+      } catch (e) {
+        btn.disabled = false;
+        btn.innerHTML = original;
+        toast(e.message, 'err', 'Install failed');
+      }
+    }
+
+    async function paintInstalled() {
+      pane.innerHTML = window.el.skeleton(3);
+      try {
+        const r = await API.get(`/api/servers/${s.id}/addons/marketplace`);
+        const items = r.installed || [];
+        host.querySelector('#mk-installed-count').textContent = String(items.length);
+        pane.innerHTML = `
+          <div class="row wrap gap-8 mb-14">
+            <span class="chip chip-plain"><span class="mono tiny">${esc(r.folder || 'plugins')}/</span></span>
+            <span class="dim tiny">${items.length} file${items.length === 1 ? '' : 's'} · read from disk</span>
+          </div>
+          ${items.length ? `<div class="table-wrap"><table class="data">
+            <thead><tr><th>File</th><th>Folder</th><th>Size</th><th>Modified</th><th></th></tr></thead>
+            <tbody>${items.map((it) => `<tr>
+              <td class="mono tiny">${esc(it.fileName)}</td>
+              <td><span class="chip chip-plain tiny">${esc(it.directory)}</span></td>
+              <td class="num">${esc(it.sizeFormatted || fmt.bytes(it.size))}</td>
+              <td class="dim small">${esc(fmt.date(it.modifiedAt))}</td>
+              <td><div class="cell-actions"><button class="btn btn-xs btn-danger" data-uninstall="${esc(it.fileName)}" data-dir="${esc(it.directory)}" data-type="${esc(it.type)}">${I('trash')} Remove</button></div></td>
+            </tr>`).join('')}</tbody></table></div>`
+            : emptyState('archive', 'Nothing installed yet', `Install ${isModServer ? 'mods' : 'plugins'} from the Catalogue tab — they land in ${esc(r.folder || 'plugins')}/.`)}`;
+        pane.querySelectorAll('[data-uninstall]').forEach((b) => b.onclick = () => window.el.confirmDialog({
+          title: `Remove ${b.dataset.uninstall}?`,
+          message: 'The file is deleted from this server. Restart the server so it unloads.',
+          confirmLabel: 'Remove file',
+          onConfirm: async () => {
+            try {
+              await API.post('/api/marketplace/uninstall', {
+                serverId: s.id, fileName: b.dataset.uninstall, directory: b.dataset.dir, targetType: b.dataset.type
+              });
+              toast('Removed — restart the server to unload it', 'ok');
+              paintInstalled();
+            } catch (e) { toast(e.message, 'err'); }
+          }
+        }));
+      } catch (e) {
+        pane.innerHTML = emptyState('alert', 'Installed list unavailable', e.message);
+      }
+    }
+
+    async function paintWorlds() {
+      pane.innerHTML = window.el.skeleton(3);
+      try {
+        const r = await API.get('/api/marketplace/maps');
+        const maps = r.maps || [];
+        pane.innerHTML = maps.length ? `<div class="mk-grid">${maps.map((m) => `
+          <article class="mk-card">
+            <div class="mk-card-head">
+              <div class="mk-ico">${I('map')}</div>
+              <div class="grow" style="min-width:0"><h4>${esc(m.title)}</h4>
+                <div class="mk-meta"><span>${esc(m.category || 'world')}</span>${m.tag ? `<span>·</span><span>${esc(m.tag)}</span>` : ''}</div></div>
+            </div>
+            <p class="mk-desc">${esc(String(m.description || '').slice(0, 120))}${String(m.description || '').length > 120 ? '…' : ''}</p>
+            <div class="row wrap gap-4">${(m.versions || []).slice(0, 3).map((v) => `<span class="chip chip-plain tiny mono">${esc(v)}</span>`).join('')}</div>
+            <div class="mk-foot"><span class="dim tiny">curated · offline capable</span>
+              <button class="btn btn-sm btn-primary" data-map="${esc(m.id)}" data-title="${esc(m.title)}">${I('download')} Install world</button></div>
+          </article>`).join('')}</div>`
+          : emptyState('map', 'No worlds', 'The curated world catalogue is empty.');
+        pane.querySelectorAll('[data-map]').forEach((b) => b.onclick = async () => {
+          b.disabled = true; b.innerHTML = 'Installing…';
+          try {
+            await API.post(`/api/servers/${s.id}/worlds/install-map`, { mapId: b.dataset.map });
+            b.innerHTML = `${I('check')} Installed`;
+            toast(`${b.dataset.title} installed and set as the active world`, 'ok');
+          } catch (e) {
+            b.disabled = false; b.innerHTML = `${I('download')} Install world`;
+            toast(e.message, 'err');
+          }
+        });
+      } catch (e) {
+        pane.innerHTML = emptyState('globe', 'World catalogue unavailable', e.message);
+      }
+    }
+
+    paint();
+    refreshInstalledCount();
+  }
+
+  /* --------------------------------------------------------------- activity */
+  /* The per-server audit trail: every command, power action and setting change
+     the panel recorded for this server, straight from activity_logs. */
+  async function renderActivity(host, s) {
+    host.innerHTML = `<div class="card">
+      <div class="card-head"><div class="grow"><h3>Activity</h3>
+        <div class="card-sub">Everything recorded against this server — commands, power actions and configuration changes</div></div>
+        <div class="row gap-8">
+          <select class="select" id="act-filter" style="width:auto">
+            <option value="">All actions</option>
+            <option value="POWER">Power only</option>
+            <option value="COMMAND">Commands only</option>
+          </select>
+          <button class="btn btn-sm" id="act-refresh">${I('refresh')} Refresh</button>
+        </div>
+      </div>
+      <div id="act-body">${window.el.skeleton(4)}</div>
+    </div>`;
+
+    const badge = (action) => {
+      const a = String(action || '');
+      const cls = /CREATE|START/.test(a) ? 'chip-live' : /DELETE|KILL|STOP|SUSPEND/.test(a) ? 'chip-danger' : /COMMAND|UPDATE|EDIT/.test(a) ? 'chip-onyx' : 'chip-plain';
+      return `<span class="chip ${cls}"><span class="mono tiny">${esc(a || '—')}</span></span>`;
+    };
+
+    const paint = async () => {
+      const body = document.getElementById('act-body');
+      if (!body) return;
+      const filter = document.getElementById('act-filter').value;
+      try {
+        const r = await API.get(`/api/activity/server/${s.id}?limit=100`);
+        let logs = r.logs || [];
+        if (filter === 'POWER') logs = logs.filter((l) => /^(SERVER_)?(START|STOP|RESTART|KILL|SUSPEND|UNSUSPEND)/.test(String(l.action).replace(/^SERVER_/, '')));
+        if (filter === 'COMMAND') logs = logs.filter((l) => /COMMAND/.test(String(l.action)));
+        body.innerHTML = logs.length ? `<div class="table-wrap"><table class="data">
+          <thead><tr><th>Action</th><th>User</th><th>Details</th><th>Source</th><th>When</th></tr></thead>
+          <tbody>${logs.map((l) => `<tr>
+            <td>${badge(l.action)}</td>
+            <td><b>${esc(l.username || 'system')}</b></td>
+            <td class="mono tiny" style="max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(l.details || '')}">${esc(l.details || '—')}</td>
+            <td class="dim small">${esc(l.ip_address || '—')}</td>
+            <td class="dim small" title="${esc(l.created_at || '')}">${esc(fmt.ago(l.created_at))}</td>
+          </tr>`).join('')}</tbody></table></div>
+          <div class="row" style="padding:10px 18px;border-top:1px solid var(--line)"><span class="dim tiny">${logs.length} entr${logs.length === 1 ? 'y' : 'ies'} · newest first</span></div>`
+          : emptyState('activity', 'Nothing recorded yet', filter ? 'No entries match this filter.' : 'Power actions, commands and setting changes will appear here as they happen.');
+      } catch (e) {
+        body.innerHTML = emptyState('alert', 'Activity unavailable', e.message);
+      }
+    };
+    document.getElementById('act-filter').onchange = paint;
+    document.getElementById('act-refresh').onclick = () => { paint(); toast('Activity refreshed', 'ok'); };
     paint();
   }
 

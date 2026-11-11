@@ -92,7 +92,7 @@ async function bootstrap() {
   const crypto = require('crypto');
   const PUBLIC_DIR = path.join(__dirname, '../public');
   const assetHashes = new Map();
-  const ASSET_FILES = ['js/icons.js', 'js/core.js', 'js/auth.js', 'js/portal.js', 'js/server.js',
+  const ASSET_FILES = ['js/icons.js', 'js/core.js', 'js/auth.js', 'js/portal.js', 'js/server.js', 'js/console.js',
     'js/admin.js', 'js/market.js', 'js/admin-extra.js', 'js/boot.js', 'css/darkonyx.css'];
 
   function assetHash(rel) {

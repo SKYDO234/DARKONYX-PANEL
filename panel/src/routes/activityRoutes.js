@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { query } = require('../database/db');
-const { authenticate, requireAdmin } = require('../middleware/auth');
+const { authenticate, requireAdmin, requireServerAccess } = require('../middleware/auth');
 
 // Get system activity logs (Admin) or user activity logs
 router.get('/', authenticate, async (req, res) => {
@@ -37,7 +37,7 @@ router.get('/', authenticate, async (req, res) => {
 });
 
 // Get server specific activity logs
-router.get('/server/:serverId', authenticate, async (req, res) => {
+router.get('/server/:serverId', authenticate, requireServerAccess('view'), async (req, res) => {
   try {
     const serverId = req.params.serverId;
     const limit = parseInt(req.query.limit || '50', 10);

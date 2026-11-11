@@ -34,7 +34,11 @@ router.get('/bootstrap', async (req, res) => {
     const rows = await query.all('SELECT `key`, `value` FROM settings');
     const settings = {};
     for (const r of rows) settings[r.key] = r.value;
-    const allowed = ['panel_name', 'panel_logo', 'favicon_logo', 'favicon_name', 'panel_bg', 'panel_bg_type', 'theme_mode', 'registration_enabled', 'default_language'];
+    // The wallpaper and its blur/veil are branding, not secrets: the login
+    // screen has to paint them before anyone is signed in, otherwise a chosen
+    // background only appears after login (or not at all).
+    const allowed = ['panel_name', 'panel_logo', 'favicon_logo', 'favicon_name', 'panel_bg', 'panel_bg_type',
+      'panel_bg_category', 'blur_bar', 'transparency_bar', 'theme_mode', 'registration_enabled', 'default_language'];
     const publicSettings = {};
     for (const k of allowed) if (settings[k] !== undefined) publicSettings[k] = settings[k];
     res.json({ success: true, settings: publicSettings });

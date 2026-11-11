@@ -38,7 +38,26 @@ counted from `panel/src/routes` + `panel/src/api`.
 - Lifecycle: start / stop / restart / **kill** (`POST /api/servers/:id/power`)
 - Suspend / unsuspend, expiry date, delete
 - Live console over WebSocket (`/ws/servers/:id/console`) — command send,
-  power signals, ANSI rendering, command history, quick commands
+  power signals, ANSI rendering, quick commands, and a full console workspace
+  (`public/js/console.js`):
+  - **Terminal** — 3 000-line bounded buffer, ANSI colour + bold, search/filter
+    with match stepping and "only matches", line-wrap / text-size (9–28 px) /
+    timestamp toggles, per-server command history (↑/↓ + history dialog) kept in
+    the browser, copy, download `.log`, clear (view only), jump-to-latest,
+    expand mode, auto-reconnect with exponential backoff
+  - **Telemetry rail** — CPU, memory, disk and network-in/out cards with real
+    limits, plus rolling 60-second charts. Values come from the container's own
+    counters or the process tree in `/proc`; disk is the real size of the server
+    directory. Anything the host cannot measure prints "not measured" with the
+    reason instead of a zero (`GET /api/servers/:id/stats`)
+  - **Marketplace tab** — the Modrinth catalogue scoped to this server (plugins
+    for Bukkit-family, mods for Forge/Fabric/NeoForge/Quilt), one-click install
+    that resolves the file matching the server's loader + Minecraft version, an
+    **Installed** tab read straight from `plugins/` or `mods/` on disk with
+    remove, and the curated **Worlds** catalogue. Catalogue failures (offline
+    host) are reported as offline, never as an empty result
+  - **Activity tab** — the per-server audit trail (`GET /api/activity/server/:id`,
+    now scoped by `requireServerAccess('view')`)
 - Resource limits & build config (CPU %, RAM, disk, swap, IO weight)
 - **Version changer** (switch MC version keeping the world)
 - **Egg changer** (27 selectable templates, `GET/POST .../egg-changer`)
@@ -166,8 +185,13 @@ option to move backups), single transfer, toggle install.
 
 **Locations** — CRUD, country/flag, per-node assignment (4 endpoints).
 
-**Settings** — branding (name, logo, colors), registration toggle, default
-language, default theme, wallpaper library (bundled + upload + custom
+**Settings** — branding studio: panel name, logo, favicon, wallpaper (bundled
+presets with thumbnails, 4K gallery search, direct image/video URL or upload),
+live blur + veil sliders with a preview frame that reports whether the media
+actually loads, and a reset-to-default. Everything is applied to the running
+page immediately and exposed before login through `/api/bootstrap`, so the
+sign-in screen is branded too. Registration toggle, default language, default
+theme, wallpaper library (bundled + upload + custom
 categories), reset to defaults, public settings endpoint.
 
 **Social login admin** — enable/disable providers, bulk update, per-provider
