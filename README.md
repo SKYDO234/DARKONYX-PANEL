@@ -142,11 +142,17 @@ repeatedly against a live instance.
 ```bash
 cd panel
 node src/index.js            # in one terminal
-node test/feature-audit.js   # in another
+npm run test:api             # backend — 155 checks
+npm install --no-save jsdom && npm run test:ui   # frontend — 23 checks
 ```
 
+`test:ui` drives the real SPA in jsdom: it logs in through the login form,
+walks all 28 routes asserting no `undefined`/`NaN`/`[object Object]` in the
+rendered markup, opens the node dialog and checks all 8 panels show live data,
+and clicks bulk-suspend to confirm it actually suspends the selected servers.
+
 ```
-=== 147/147 checks passed ===
+=== 155/155 checks passed ===
 
 Per-group:
   auth          11/11 ✔     files         19/19 ✔     addons        10/10 ✔
@@ -154,9 +160,9 @@ Per-group:
   admin          4/4  ✔     backups        7/7  ✔     mcjars         1/1  ✔
   users          9/9  ✔     schedules      4/4  ✔     settings       2/2  ✔
   locations      4/4  ✔     players        3/3  ✔     api-keys       4/4  ✔
-  nodes         15/15 ✔     worlds         7/7  ✔     activity       1/1  ✔
+  nodes         19/19 ✔     worlds         7/7  ✔     activity       1/1  ✔
   servers       16/16 ✔     subusers       4/4  ✔     admin-ext      6/6  ✔
-                            network        2/2  ✔     daemon         1/1  ✔
+  admin-servers  4/4  ✔     network        2/2  ✔     daemon         1/1  ✔
                             databases      1/1  ✔     sftp           1/1  ✔
                                                      websocket      1/1  ✔
 ```

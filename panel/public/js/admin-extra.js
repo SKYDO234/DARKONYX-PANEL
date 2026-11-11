@@ -223,7 +223,6 @@
               try {
                 const res = await API.post(`/api/admin/nodes/${nodeId}/allocations`, body);
                 toast(res.message || 'Allocations added', 'ok');
-                if (alias) { try { await API.put(`/api/admin/nodes/${nodeId}/allocations/alias`, { ip, ip_alias: alias }); } catch (e2) {} }
                 paintAlloc();
               } catch (e2) { toast(e2.message, 'err'); }
             };

@@ -329,8 +329,9 @@ router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
 router.post('/:id/allocations', authenticate, requireAdmin, async (req, res) => {
   try {
     const nodeId = req.params.id;
-    const { ip, ports, startPort, endPort } = req.body;
+    const { ip, ports, startPort, endPort, ip_alias } = req.body;
     const targetIp = ip || '127.0.0.1';
+    const targetAlias = (ip_alias || '').trim() || null;
 
     let portsToAdd = [];
     if (startPort && endPort) {
@@ -361,7 +362,7 @@ router.post('/:id/allocations', authenticate, requireAdmin, async (req, res) => 
     for (const p of portsToAdd) {
       const existing = await query.get('SELECT id FROM allocations WHERE node_id = ? AND ip = ? AND port = ?', [nodeId, targetIp, p]);
       if (!existing) {
-        await query.run('INSERT INTO allocations (node_id, ip, port, assigned) VALUES (?, ?, ?, 0)', [nodeId, targetIp, p]);
+        await query.run('INSERT INTO allocations (node_id, ip, port, assigned, ip_alias) VALUES (?, ?, ?, 0, ?)', [nodeId, targetIp, p, targetAlias]);
         addedCount++;
       }
     }

@@ -66,9 +66,10 @@ router.get('/eggs', async (req, res) => {
   try {
     const mcjarsService = require('../services/mcjarsService');
     const types = await mcjarsService.getTypes();
-    res.json({ success: true, types });
+    // `eggs` mirrors `types` so either name works for API consumers
+    res.json({ success: true, types, eggs: types });
   } catch (err) {
-    res.json({ success: true, types: [] });
+    res.json({ success: true, types: [], eggs: [] });
   }
 });
 
