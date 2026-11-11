@@ -39,7 +39,7 @@
 
     renderLogin() {
       const app = document.getElementById('app');
-      Theme.apply(localStorage.getItem('dkx.theme') || 'dark');
+      Theme.apply((window.DKXStorage ? window.DKXStorage.get('dkx.theme') : null) || 'dark');
       const isRegister = this.mode === 'register';
 
       app.innerHTML = `
@@ -90,7 +90,7 @@
                 </div>
               ` : `
                 <div class="field"><label>Username or email</label>
-                  <input class="input" name="username" placeholder="admin" autocomplete="username" value="${esc(localStorage.getItem('dkx.lastUser') || '')}" required />
+                  <input class="input" name="username" placeholder="admin" autocomplete="username" value="${esc(window.DKXStorage ? (window.DKXStorage.get('dkx.lastUser') || '') : '')}" required />
                 </div>
                 <div class="field"><label>Password</label>
                   <div style="position:relative">
@@ -174,12 +174,14 @@
     complete(r, username) {
       Store.setToken(r.token);
       Store.setUser(r.user);
-      if (username) localStorage.setItem('dkx.lastUser', username);
+      if (username && window.DKXStorage) window.DKXStorage.set('dkx.lastUser', username);
       Store.api = true;
       toast(`Signed in as ${r.user.username}`, 'ok', 'Access granted');
       const target = Store.isAdmin() ? '/admin/overview' : '/portal/overview';
       location.hash = '#' + target;
-      window.DKX.Router.resolve();
+      // start() wires the hashchange listener on first login and resolves the
+      // route; calling resolve() alone here left navigation dead until reload.
+      window.DKX.Router.start();
     }
   };
 

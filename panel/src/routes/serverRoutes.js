@@ -256,9 +256,16 @@ router.get('/:id', authenticate, requireServerAccess('view'), async (req, res) =
     server.sftp_host = server.node_fqdn || '127.0.0.1';
     server.sftp_port = server.sftp_port || config.PORT_SFTP;
 
+    // The console needs its history back after a page reload; the live buffer
+    // is real output the runner captured, so hand it over instead of an empty
+    // screen that only fills once the server talks again.
+    let consoleHistory = '';
+    try { consoleHistory = runnerService.getBuffer(server.id) || ''; } catch (e) {}
+
     res.json({
       success: true,
       server,
+      console: consoleHistory.slice(-40000),
       permissions: req.permissions,
       isOwner: req.isOwner
     });

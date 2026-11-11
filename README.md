@@ -31,6 +31,8 @@
 | **Security** | bcrypt, JWT, TOTP 2FA, impersonation, audit log |
 | **SFTP** | Built-in SFTP server on port 3004 |
 
+Full, verified feature-by-feature breakdown: **[docs/FEATURES.md](docs/FEATURES.md)**.
+
 ---
 
 ## 🚀 Quick start
@@ -142,11 +144,33 @@ repeatedly against a live instance.
 ```bash
 cd panel
 node src/index.js            # in one terminal
-node test/feature-audit.js   # in another
+npm run test:api             # backend — 155 checks
+npm install --no-save jsdom && npm run test:ui   # frontend — 23 checks
 ```
 
+Available suites:
+
+| Script | What it proves |
+|---|---|
+| `npm run test:api` | 155 endpoint checks across 27 groups |
+| `npm run test:data` | 31 checks that no telemetry is fabricated (CPU, RAM, disk, network, Docker, DB, logs) |
+| `npm run test:layout` | 18 checks on overlays, z-index, click targets and design-system coverage |
+| `npm run test:ui` | 28 checks driving the real SPA in jsdom — login, navigation, all 28 routes, node panels, bulk actions |
+| `npm run test:clicks` | clicks every control on all 28 routes; fails on any dead button |
+| `npm run test:page` | loads the page over HTTP and executes the real `<script src>` tags, then clicks through the sidebar |
+
+Asset URLs are content-hashed and the running page checks `/api/build`, so a
+tab left open across an upgrade reloads itself instead of pairing old
+JavaScript with new markup (which looks identical to a broken UI).
+
+`test:ui` logs in through the real login form, navigates by clicking the
+sidebar exactly like a user, walks all 28 routes asserting no
+`undefined`/`NaN`/`[object Object]` in the rendered markup, opens the node
+dialog to check all 8 panels show live data, and clicks bulk-suspend to confirm
+it actually suspends the selected servers.
+
 ```
-=== 147/147 checks passed ===
+=== 155/155 checks passed ===
 
 Per-group:
   auth          11/11 ✔     files         19/19 ✔     addons        10/10 ✔
@@ -154,9 +178,9 @@ Per-group:
   admin          4/4  ✔     backups        7/7  ✔     mcjars         1/1  ✔
   users          9/9  ✔     schedules      4/4  ✔     settings       2/2  ✔
   locations      4/4  ✔     players        3/3  ✔     api-keys       4/4  ✔
-  nodes         15/15 ✔     worlds         7/7  ✔     activity       1/1  ✔
+  nodes         19/19 ✔     worlds         7/7  ✔     activity       1/1  ✔
   servers       16/16 ✔     subusers       4/4  ✔     admin-ext      6/6  ✔
-                            network        2/2  ✔     daemon         1/1  ✔
+  admin-servers  4/4  ✔     network        2/2  ✔     daemon         1/1  ✔
                             databases      1/1  ✔     sftp           1/1  ✔
                                                      websocket      1/1  ✔
 ```

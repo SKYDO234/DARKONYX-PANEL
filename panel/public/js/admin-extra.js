@@ -3,7 +3,7 @@
    Node operations · addons · social login · panel updates · server databases
    ========================================================================== */
 (function () {
-  const { esc, fmt, API, Store, toast, confirmDialog, emptyState } = window.el;
+  const { esc, fmt, API, Store, toast, modal, confirmDialog, emptyState } = window.el;
 
   /* --------------------------------------------------------- node operations */
   async function nodeDetail(nodeId) {
@@ -59,8 +59,10 @@
         const cpu = Number(st.cpu_percent || st.cpu || 0);
         const ramUsed = Number(st.ram_used_mb || st.used_mb || 0);
         const ramTotal = Number(st.ram_total_mb || st.total_mb || 0);
-        const diskUsed = Number(st.disk_used_mb || 0);
-        const diskTotal = Number(st.disk_total_mb || 0);
+        // the API reports disk in GB from a real statfs call
+        const diskUsed = Number(st.ssd_used_gb != null ? st.ssd_used_gb * 1024 : (st.disk_used_mb || 0));
+        const diskTotal = Number(st.ssd_total_gb != null ? st.ssd_total_gb * 1024 : (st.disk_total_mb || 0));
+        const diskReal = st.ssd_measured !== false && diskTotal > 0;
         wrap.querySelector('#nd-stats').innerHTML = `
           <div class="three-col">
             <div class="stat"><div class="stat-top">${I('cpu')} CPU</div>
@@ -72,9 +74,9 @@
               <div class="stat-foot">of ${esc(fmt.mb(ramTotal))}</div>
               <div class="mt-8">${window.el.meter(ramTotal ? (ramUsed / ramTotal) * 100 : 0, 'live')}</div></div>
             <div class="stat"><div class="stat-top">${I('disk')} Disk</div>
-              <div class="stat-value" style="font-size:20px">${diskTotal ? esc(fmt.mb(diskUsed)) : '—'}</div>
-              <div class="stat-foot">${diskTotal ? 'of ' + esc(fmt.mb(diskTotal)) : 'not reported'}</div>
-              <div class="mt-8">${window.el.meter(diskTotal ? (diskUsed / diskTotal) * 100 : 0, 'blue')}</div></div>
+              <div class="stat-value" style="font-size:20px">${diskReal ? esc(fmt.mb(diskUsed)) : '—'}</div>
+              <div class="stat-foot">${diskReal ? 'of ' + esc(fmt.mb(diskTotal)) + ' · ' + esc(st.ssd_percent || 0) + '% used' : 'not measured on this host'}</div>
+              <div class="mt-8">${window.el.meter(diskReal ? (diskUsed / diskTotal) * 100 : 0, 'blue')}</div></div>
           </div>
           <div class="card mt-14"><div class="card-body">
             <div class="kv"><span class="k">Daemon</span><span class="v">${esc(st.daemon_status || st.status || 'online')}</span></div>
@@ -117,15 +119,26 @@
         };
         paintFw();
 
-        wrap.querySelector('#nd-svc-start').onclick = async () => {
-          try { await API.post(`/api/admin/nodes/${nodeId}/service`, { action: 'start' }); toast('Daemon start requested', 'ok'); } catch (e) { toast(e.message, 'err'); }
+        wrap.querySelector('#nd-svc-start').onclick = async (e) => {
+          e.target.disabled = true;
+          try { const r = await API.post(`/api/admin/nodes/${nodeId}/service`, { action: 'start' }); toast(r.message || 'Service start requested', 'ok'); }
+          catch (err) { toast(err.message, 'err', 'Not performed'); }
+          finally { e.target.disabled = false; }
         };
-        wrap.querySelector('#nd-svc-restart').onclick = async () => {
-          try { await API.post(`/api/admin/nodes/${nodeId}/service`, { action: 'restart' }); toast('Daemon restart requested', 'ok'); } catch (e) { toast(e.message, 'err'); }
-        };
+        wrap.querySelector('#nd-svc-restart').onclick = () => confirmDialog({
+          title: 'Restart the panel daemon?', message: 'The panel process restarts. Open consoles reconnect once it is back up.', confirmLabel: 'Restart',
+          danger: true,
+          onConfirm: async () => {
+            try { const r = await API.post(`/api/admin/nodes/${nodeId}/service`, { action: 'restart' }); toast(r.message || 'Restart issued', 'warn'); }
+            catch (err) { toast(err.message, 'err', 'Not performed'); }
+          }
+        });
         wrap.querySelector('#nd-svc-reboot').onclick = () => confirmDialog({
-          title: 'Reboot the host?', message: 'Every server on this node will be terminated.', confirmLabel: 'Reboot host',
-          onConfirm: async () => { await API.post(`/api/admin/nodes/${nodeId}/reboot-vps`); toast('Reboot signal sent', 'warn'); }
+          title: 'Reboot the host?', message: 'Every server on this machine will be terminated and the panel will go offline until the host comes back.', confirmLabel: 'Reboot host',
+          onConfirm: async () => {
+            try { const r = await API.post(`/api/admin/nodes/${nodeId}/reboot-vps`); toast(r.message || 'Reboot issued', 'warn'); }
+            catch (err) { toast(err.message, 'err', 'Not performed'); }
+          }
         });
 
         /* ---- Wings stats: daemon + system + docker + top processes ---- */
@@ -151,13 +164,16 @@
             </div>
             <div class="card mt-14"><div class="card-body">
               <div class="kv"><span class="k">Daemon</span><span class="v"><span class="chip ${dm.status === 'running' ? 'chip-live' : 'chip-warn'}">${esc(dm.status || 'unknown')}</span> <span class="mono tiny dim">v${esc(dm.version || '—')}</span></span></div>
+              <div class="kv"><span class="k">Mode</span><span class="v mono">${esc(dm.mode || '—')}</span></div>
               <div class="kv"><span class="k">Service</span><span class="v mono">${esc(dm.service || '—')}</span></div>
               <div class="kv"><span class="k">PID</span><span class="v mono">${esc(dm.pid || '—')}</span></div>
               <div class="kv"><span class="k">Started</span><span class="v">${dm.started_at ? esc(fmt.date(dm.started_at)) : '—'}</span></div>
               <div class="kv"><span class="k">OS / Kernel</span><span class="v mono tiny">${esc(sy.os || '—')} · ${esc(String(sy.kernel || '').slice(0, 24))}</span></div>
               <div class="kv"><span class="k">Uptime</span><span class="v">${esc(fmt.uptime(sy.uptime_seconds || 0))}</span></div>
               <div class="kv"><span class="k">Load average</span><span class="v mono">${esc(Array.isArray(sy.load_avg) ? sy.load_avg.join('  ') : (sy.load_avg || '—'))}</span></div>
-              <div class="kv"><span class="k">Docker</span><span class="v">${dk.available === false ? '<span class="chip chip-warn">not available</span>' : `<span class="mono tiny">${esc(dk.version || 'running')}</span> · ${esc(dk.containers_running != null ? dk.containers_running + ' containers' : '')}`}</span></div>
+              <div class="kv"><span class="k">Runtime</span><span class="v">${dm.mode === 'docker'
+                ? `<span class="chip chip-live">docker</span> <span class="mono tiny dim">${esc((dk.containers && dk.containers.running) || 0)}/${esc((dk.containers && dk.containers.total) || 0)} running · ${esc(dk.images || 0)} images</span>`
+                : `<span class="chip chip-warn">native processes</span> <span class="mono tiny dim">${esc(dk.error || 'Docker socket not present')}</span>`}</span></div>
             </div></div>
             ${procs.length ? `<div class="card mt-14"><div class="card-head"><div class="grow"><h3>Top processes</h3>
               <div class="card-sub">Highest CPU consumers on the node right now</div></div></div>
@@ -187,7 +203,7 @@
                 <tbody>${all.map((a) => `<tr>
                   <td class="mono tiny">${esc(a.ip)}</td>
                   <td class="mono tiny dim">${esc(a.ip_alias || '—')}</td>
-                  <td class="mono tiny">${esc(a.port)}</td>
+                  <td class="mono tiny"><button class="btn btn-xs btn-ghost" data-portinfo="${esc(a.port)}">${esc(a.port)}</button></td>
                   <td>${a.assigned && a.server_name ? `<span class="chip chip-info">${esc(a.server_name)}</span>` : '<span class="dim tiny">free</span>'}</td>
                   <td><div class="cell-actions">${a.assigned ? '' : `<button class="btn btn-xs btn-ghost" data-allocdel="${a.id}">${I('trash')}</button>`}</div></td>
                 </tr>`).join('')}</tbody></table></div>`
@@ -203,6 +219,25 @@
                 <p class="dim tiny mt-8">Enter individual ports separated by commas, or a range with a dash (max 500 per batch).</p>
               </div></div>`;
 
+            box.querySelectorAll('[data-portinfo]').forEach((b) => b.onclick = async () => {
+              try {
+                const r = await API.get(`/api/admin/nodes/${nodeId}/ports/${b.dataset.portinfo}/detail`);
+                const al = r.allocation || {}, tr = r.traffic;
+                modal({
+                  title: `Port ${r.port}`, subtitle: r.listening ? 'A process is listening on this port' : 'Nothing is listening on this port right now',
+                  size: 'narrow',
+                  body: `<div class="col gap-8">
+                    <div class="kv"><span class="k">IP</span><span class="v mono">${esc(al.ip || '—')}</span></div>
+                    <div class="kv"><span class="k">Alias</span><span class="v mono">${esc(al.ip_alias || 'none')}</span></div>
+                    <div class="kv"><span class="k">State</span><span class="v">${al.assigned ? `<span class="chip chip-live">assigned</span>` : '<span class="chip">free</span>'}</span></div>
+                    ${al.server_name ? `<div class="kv"><span class="k">Server</span><span class="v">${esc(al.server_name)}</span></div>` : ''}
+                    ${r.owner ? `<div class="kv"><span class="k">Owner</span><span class="v">${esc(r.owner.username)} · ${esc(r.owner.email)}</span></div>` : ''}
+                    <div class="kv"><span class="k">Listening</span><span class="v">${r.listening ? '<span class="chip chip-live">yes</span>' : '<span class="chip chip-warn">no</span>'}</span></div>
+                    <p class="dim tiny mt-8">${esc(r.note || '')}</p>
+                  </div>`
+                });
+              } catch (e2) { toast(e2.message, 'err'); }
+            });
             box.querySelectorAll('[data-allocdel]').forEach((b) => b.onclick = () => confirmDialog({
               title: 'Delete allocation?', message: 'This frees the port permanently.', confirmLabel: 'Delete',
               onConfirm: async () => { await API.del(`/api/admin/nodes/${nodeId}/allocations/${b.dataset.allocdel}`); paintAlloc(); }
@@ -223,7 +258,6 @@
               try {
                 const res = await API.post(`/api/admin/nodes/${nodeId}/allocations`, body);
                 toast(res.message || 'Allocations added', 'ok');
-                if (alias) { try { await API.put(`/api/admin/nodes/${nodeId}/allocations/alias`, { ip, ip_alias: alias }); } catch (e2) {} }
                 paintAlloc();
               } catch (e2) { toast(e2.message, 'err'); }
             };

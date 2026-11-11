@@ -160,6 +160,9 @@
   function paintStats(stats) {
     const s = state.server || {};
     const cpu = Math.min(100, Math.round(stats.cpu || 0));
+    // When the daemon cannot measure a process (no Docker and no /proc), say so
+    // instead of drawing a confident 0%.
+    const unmeasured = stats.measured === false;
     const mem = Math.round(stats.memory || 0);
     const memLimit = Number(s.memory_mb || 1024);
     const disk = Math.round(stats.disk || 0);
@@ -169,8 +172,8 @@
       const b = document.getElementById(`ls-${k}-b`);
       if (b) b.innerHTML = meter(pct, pct > 90 ? 'danger' : pct > 70 ? 'warn' : k === 'cpu' ? '' : 'live');
     };
-    set('cpu', `${cpu}%`, cpu);
-    set('memory', `${fmt.mb(mem)} / ${fmt.mb(memLimit)}`, (mem / memLimit) * 100);
+    set('cpu', unmeasured ? 'not measured' : `${cpu}%`, unmeasured ? 0 : cpu);
+    set('memory', unmeasured ? 'not measured' : `${fmt.mb(mem)} / ${fmt.mb(memLimit)}`, unmeasured ? 0 : (mem / memLimit) * 100);
     set('disk', `${fmt.mb(disk)} / ${fmt.mb(diskLimit)}`, (disk / diskLimit) * 100);
     const up = document.getElementById('ls-uptime-v');
     if (up) up.textContent = fmt.uptime(stats.uptime || 0);

@@ -1,6 +1,7 @@
 const express = require('express');
 const http = require('http');
 const path = require('path');
+const fs = require('fs');
 const cors = require('cors');
 const { WebSocketServer } = require('ws');
 
@@ -70,6 +71,7 @@ async function bootstrap() {
   // Initialize DB & Seed
   await initDatabase();
   await seedDatabase();
+  require('./services/systemTelemetry').start();
   await scheduleService.initSchedules();
   await autoBackupService.initAutoBackupCron();
   autoSuspensionService.init();
@@ -82,8 +84,53 @@ async function bootstrap() {
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+  // ---- frontend build identity -------------------------------------------
+  // A stale tab (old JS paired with new HTML) used to look exactly like a
+  // broken panel: nothing responds to clicks. Every asset URL now carries the
+  // hash of the file it points at, /api/meta exposes the same hash, and the
+  // running page compares the two and reloads itself when they diverge.
+  const crypto = require('crypto');
+  const PUBLIC_DIR = path.join(__dirname, '../public');
+  const assetHashes = new Map();
+  const ASSET_FILES = ['js/icons.js', 'js/core.js', 'js/auth.js', 'js/portal.js', 'js/server.js',
+    'js/admin.js', 'js/market.js', 'js/admin-extra.js', 'js/boot.js', 'css/darkonyx.css'];
+
+  function assetHash(rel) {
+    if (!assetHashes.has(rel)) {
+      try {
+        assetHashes.set(rel, crypto.createHash('sha1')
+          .update(fs.readFileSync(path.join(PUBLIC_DIR, rel)))
+          .digest('hex').slice(0, 10));
+      } catch (e) { assetHashes.set(rel, '0'); }
+    }
+    return assetHashes.get(rel);
+  }
+
+  // index.html is the only thing that is templated: the version query string on
+  // each tag guarantees a new URL whenever a file changes.
+  const indexTemplate = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8');
+  const renderIndex = () => {
+    let html = indexTemplate;
+    for (const rel of ASSET_FILES) {
+      html = html.split(`"/${rel}"`).join(`"/${rel}?v=${assetHash(rel)}"`);
+    }
+    const build = ASSET_FILES.map(assetHash).join('').slice(0, 8);
+    html = html.replace('</head>', `  <meta name="dkx-build" content="${build}" />\n</head>`);
+    return html;
+  };
+
+  app.get(['/', '/index.html'], (req, res) => {
+    res.set('Cache-Control', 'no-store, must-revalidate');
+    res.type('html').send(renderIndex());
+  });
+
+  app.get('/api/build', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json({ success: true, build: ASSET_FILES.map(assetHash).join('').slice(0, 8) });
+  });
+
   // Static Assets (DARKONYX frontend)
-  app.use(express.static(path.join(__dirname, '../public'), {
+  app.use(express.static(PUBLIC_DIR, {
     maxAge: 0,
     etag: false,
     setHeaders: (res) => {

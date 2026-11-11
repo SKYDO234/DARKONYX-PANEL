@@ -392,36 +392,13 @@ class AddonService {
       return eggs;
     } catch (err) {
       console.warn(`Could not fetch GitHub egg repo for ${repoName}:`, err.message);
-      // Fallback predefined eggs list so UI always works gracefully
-      return this.getFallbackEggs(type);
-    }
-  }
-
-  getFallbackEggs(type) {
-    if (type === 'game') {
-      return [
-        { id: 'egg-minecraft-paper', name: 'Minecraft Paper', category: 'Minecraft / Java', raw_url: 'https://raw.githubusercontent.com/pterodactyl/game-eggs/main/minecraft/java/egg-paper.json' },
-        { id: 'egg-minecraft-purpur', name: 'Minecraft Purpur', category: 'Minecraft / Java', raw_url: 'https://raw.githubusercontent.com/pterodactyl/game-eggs/main/minecraft/java/egg-purpur.json' },
-        { id: 'egg-minecraft-forge', name: 'Minecraft Forge', category: 'Minecraft / Forge', raw_url: 'https://raw.githubusercontent.com/pterodactyl/game-eggs/main/minecraft/forge/egg-forge.json' },
-        { id: 'egg-minecraft-fabric', name: 'Minecraft Fabric', category: 'Minecraft / Fabric', raw_url: 'https://raw.githubusercontent.com/pterodactyl/game-eggs/main/minecraft/fabric/egg-fabric.json' },
-        { id: 'egg-fivem', name: 'FiveM FXServer', category: 'GTA / FiveM', raw_url: 'https://raw.githubusercontent.com/pterodactyl/game-eggs/main/gta/fivem/egg-fivem.json' },
-        { id: 'egg-terraria', name: 'Terraria TShock', category: 'Terraria', raw_url: 'https://raw.githubusercontent.com/pterodactyl/game-eggs/main/terraria/egg-tshock.json' },
-        { id: 'egg-palworld', name: 'Palworld Server', category: 'Palworld', raw_url: 'https://raw.githubusercontent.com/pterodactyl/game-eggs/main/palworld/egg-palworld.json' },
-        { id: 'egg-rust', name: 'Rust Server', category: 'Rust', raw_url: 'https://raw.githubusercontent.com/pterodactyl/game-eggs/main/rust/egg-rust.json' },
-        { id: 'egg-ark', name: 'ARK Survival Evolved', category: 'ARK', raw_url: 'https://raw.githubusercontent.com/pterodactyl/game-eggs/main/ark/egg-ark.json' }
-      ];
-    } else if (type === 'application') {
-      return [
-        { id: 'egg-nodejs', name: 'Node.js Generic Application', category: 'NodeJS', raw_url: 'https://raw.githubusercontent.com/pterodactyl/application-eggs/main/nodejs/egg-nodejs.json' },
-        { id: 'egg-python', name: 'Python Generic Application', category: 'Python', raw_url: 'https://raw.githubusercontent.com/pterodactyl/application-eggs/main/python/egg-python.json' },
-        { id: 'egg-lavalink', name: 'Lavalink Audio Node', category: 'Music Bots', raw_url: 'https://raw.githubusercontent.com/pterodactyl/application-eggs/main/lavalink/egg-lavalink.json' },
-        { id: 'egg-discord-bot', name: 'Discord.js Bot Host', category: 'Discord', raw_url: 'https://raw.githubusercontent.com/pterodactyl/application-eggs/main/discord/egg-discordjs.json' }
-      ];
-    } else {
-      return [
-        { id: 'egg-generic-voice', name: 'TeamSpeak 3 Server', category: 'Voice', raw_url: 'https://raw.githubusercontent.com/pterodactyl/generic-eggs/main/voice/teamspeak/egg-teamspeak.json' },
-        { id: 'egg-generic-redis', name: 'Redis Database', category: 'Database', raw_url: 'https://raw.githubusercontent.com/pterodactyl/generic-eggs/main/database/redis/egg-redis.json' }
-      ];
+      // Say it failed. Serving a hardcoded "catalogue" made the UI look like it
+      // had real repo data when it was a static list that could never work.
+      const err2 = new Error(
+        `The ${type} egg repository could not be reached from this host (${err.message}). Check the server's outbound network, or import an egg JSON directly.`
+      );
+      err2.status = 502;
+      throw err2;
     }
   }
 
@@ -496,13 +473,11 @@ class AddonService {
       }
       return versions;
     } catch (e) {
-      // Fallback latest popular builds
-      return [
-        { version: '13363-fbbd63f03b22cf3fa19b0aa2610196ce2bb71603', recommended: true },
-        { version: '13304-4dfcfbc8732101140026e95267b146e279a78601', recommended: false },
-        { version: '13264-585bb047f3bcfd7568c859c25bb090cb3b44b82c', recommended: false },
-        { version: '13217-1f4a9b6c003d775191db311910efc3545167f671', recommended: false }
-      ];
+      const err = new Error(
+        `Could not read the FiveM artifact list from runtime.fivem.net (${e.message}). This host cannot reach the FiveM CDN right now.`
+      );
+      err.status = 502;
+      throw err;
     }
   }
 }

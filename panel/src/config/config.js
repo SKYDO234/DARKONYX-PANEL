@@ -36,6 +36,12 @@ module.exports = {
 
   // Panel Defaults
   DEFAULT_PANEL_NAME: process.env.PANEL_NAME || 'DARKONYX PANEL',
+
+  // Public address of this panel (used to recognise "the node I am running on")
+  PUBLIC_IP: process.env.PUBLIC_IP || '',
+
+  // Destructive host-level actions are opt-in, never implicit
+  ALLOW_HOST_REBOOT: process.env.ALLOW_HOST_REBOOT === '1',
   DEFAULT_THEME: {
     transparency: 18, // 0 - 100%
     blur: 16,        // 0 - 40px

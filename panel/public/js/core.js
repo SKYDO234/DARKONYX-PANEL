@@ -5,6 +5,38 @@
   'use strict';
 
   /* ---------------------------------------------------------------- utils */
+  /* ------------------------------------------------------------- storage */
+  /* Some browsers block storage entirely (private mode, blocked third-party
+     storage, an iframe without allow-same-origin). Reading `localStorage`
+     throws in that situation and used to take the whole panel down at load
+     time, leaving a dead boot splash. Everything below degrades to memory. */
+  const SafeStore = (() => {
+    let backing = null;
+    try {
+      const probe = '__dkx_probe__';
+      window.localStorage.setItem(probe, '1');
+      window.localStorage.removeItem(probe);
+      backing = window.localStorage;
+    } catch (e) { backing = null; }
+    const memory = new Map();
+    return {
+      available: !!backing,
+      get(k) {
+        try { if (backing) return backing.getItem(k); } catch (e) { /* fall through */ }
+        return memory.has(k) ? memory.get(k) : null;
+      },
+      set(k, v) {
+        memory.set(k, String(v));
+        try { if (backing) backing.setItem(k, String(v)); } catch (e) { /* memory only */ }
+      },
+      remove(k) {
+        memory.delete(k);
+        try { if (backing) backing.removeItem(k); } catch (e) { /* memory only */ }
+      }
+    };
+  })();
+  window.DKXStorage = SafeStore;
+
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
@@ -79,14 +111,14 @@
 
   /* ------------------------------------------------------------------ api */
   const Store = {
-    token: localStorage.getItem('dkx.token') || '',
+    token: SafeStore.get('dkx.token') || '',
     user: null,
     settings: {},
     servers: [],
     serverOrder: [],
-    setToken(t) { this.token = t || ''; if (t) localStorage.setItem('dkx.token', t); else localStorage.removeItem('dkx.token'); },
-    setUser(u) { this.user = u; localStorage.setItem('dkx.user', JSON.stringify(u || null)); },
-    cachedUser() { try { return JSON.parse(localStorage.getItem('dkx.user') || 'null'); } catch (e) { return null; } },
+    setToken(t) { this.token = t || ''; if (t) SafeStore.set('dkx.token', t); else SafeStore.remove('dkx.token'); },
+    setUser(u) { this.user = u; SafeStore.set('dkx.user', JSON.stringify(u || null)); },
+    cachedUser() { try { return JSON.parse(SafeStore.get('dkx.user') || 'null'); } catch (e) { return null; } },
     isAdmin() { return !!this.user && this.user.role === 'admin'; },
     has(perm) { return this.isAdmin() || (this.permissions || []).includes(perm) || (this.permissions || []).includes('*'); }
   };
@@ -321,9 +353,9 @@
       $('#btn-menu').onclick = () => {
         const rail = $('#rail');
         if (window.innerWidth <= 900) rail.classList.toggle('is-open');
-        else { rail.classList.toggle('is-collapsed'); localStorage.setItem('dkx.collapsed', rail.classList.contains('is-collapsed') ? '1' : '0'); }
+        else { rail.classList.toggle('is-collapsed'); SafeStore.set('dkx.collapsed', rail.classList.contains('is-collapsed') ? '1' : '0'); }
       };
-      if (localStorage.getItem('dkx.collapsed') === '1' && window.innerWidth > 900) $('#rail').classList.add('is-collapsed');
+      if (SafeStore.get('dkx.collapsed') === '1' && window.innerWidth > 900) $('#rail').classList.add('is-collapsed');
       $('#btn-theme').onclick = () => Theme.toggle();
       $('#btn-search').onclick = () => Palette.open();
       $('#btn-signout').onclick = () => window.Auth.logout();
@@ -380,12 +412,12 @@
   const Theme = {
     apply(mode) {
       document.documentElement.setAttribute('data-theme', mode);
-      localStorage.setItem('dkx.theme', mode);
+      SafeStore.set('dkx.theme', mode);
       const btn = $('#btn-theme');
       if (btn) btn.innerHTML = I(mode === 'dark' ? 'sun' : 'moon');
     },
     toggle() { this.apply(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'); },
-    init() { this.apply(localStorage.getItem('dkx.theme') || 'dark'); }
+    init() { this.apply(SafeStore.get('dkx.theme') || 'dark'); }
   };
 
   /* ------------------------------------------------------------------ menu */
@@ -469,6 +501,50 @@
   };
 
   /* ----------------------------------------------------------------- router */
+  /* A thin top bar is the cheapest honest feedback that a click registered:
+     the view fetch takes a beat on a slow link, and without it the UI looks
+     frozen. The bar completes when the new view has painted. */
+  const Progress = {
+    el: null,
+    ensure() {
+      if (!this.el) {
+        this.el = document.createElement('div');
+        this.el.id = 'route-progress';
+        document.body.appendChild(this.el);
+      }
+      return this.el;
+    },
+    start() {
+      const el = this.ensure();
+      el.classList.add('is-on');
+      el.style.width = '18%';
+      clearTimeout(this._t1); clearTimeout(this._t2);
+      this._t1 = setTimeout(() => { el.style.width = '62%'; }, 180);
+      this._t2 = setTimeout(() => { el.style.width = '86%'; }, 620);
+    },
+    done() {
+      const el = this.ensure();
+      clearTimeout(this._t1); clearTimeout(this._t2);
+      el.style.width = '100%';
+      setTimeout(() => { el.classList.remove('is-on'); el.style.width = '0'; }, 240);
+    }
+  };
+
+  /* Highlight the destination immediately on click instead of waiting for the
+     route to finish resolving — the sidebar must feel wired to the pointer. */
+  function highlightFor(hash) {
+    const path = String(hash || '').replace(/^#/, '');
+    const parts = path.split('/').filter(Boolean);
+    const idMap = {
+      'portal/overview': 'portal-overview', 'portal/servers': 'portal-servers', 'portal/activity': 'portal-activity',
+      marketplace: 'market', account: 'account'
+    };
+    let id = idMap[parts.slice(0, 2).join('/')] || idMap[parts[0]] || '';
+    if (parts[0] === 'server') id = 'portal-servers';
+    if (parts[0] === 'admin') id = 'admin-' + (parts[1] || 'overview');
+    if (id && $('#rail-nav')) $$('.rail-item').forEach((el) => el.classList.toggle('active', el.dataset.nav === id));
+  }
+
   const Views = {};
   const Router = {
     current: '',
@@ -480,6 +556,15 @@
     async resolve() {
       const hash = (location.hash || '#/').replace(/^#/, '');
       if (!Store.token) { window.Auth.renderLogin(); return; }
+      Progress.start();
+      highlightFor(hash);
+      try {
+        await this._resolve(hash);
+      } finally {
+        Progress.done();
+      }
+    },
+    async _resolve(hash) {
       if (!Store.user) {
         try {
           const r = await API.get('/api/auth/me');
@@ -561,9 +646,35 @@
         if (host) host.innerHTML = `<div class="card card-pad">${emptyState('alert', 'Could not load this view', err.message, `<button class="btn btn-sm" onclick="location.reload()">Reload panel</button>`)}</div>`;
       }
     },
+    /* Idempotent: safe to call from boot() *and* from the login flow. Without
+       this, signing in from the login form left the router with no hashchange
+       listener at all, so every sidebar/link click moved the URL and rendered
+       nothing — the panel looked completely dead until a manual reload. */
     start() {
-      window.addEventListener('hashchange', () => this.resolve());
+      if (!this._started) {
+        this._started = true;
+        window.addEventListener('hashchange', () => this.resolve());
+        this.startLinkGuard();
+      }
       this.resolve();
+    },
+    /* Delegated fallback: if a hashchange listener is ever lost (a view
+       re-render, a proxy that swallows events, an odd embedded browser),
+       clicks on any internal link still drive the router. Cheap, idempotent. */
+    startLinkGuard() {
+      if (this._guarded) return;
+      this._guarded = true;
+      document.addEventListener('click', (e) => {
+        const a = e.target.closest('a[href^="#"]');
+        if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+        const target = a.getAttribute('href');
+        setTimeout(() => {
+          const want = (location.hash || '').replace(/^#/, '');
+          if (want && '/' + want.replace(/^\//, '') !== this.current && (target || '').replace(/^#/, '') === want) {
+            this.resolve();
+          }
+        }, 90);
+      });
     }
   };
 
