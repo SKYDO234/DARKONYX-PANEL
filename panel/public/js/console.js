@@ -112,42 +112,60 @@
       .replace(/\u0002/g, '</mark>');
   }
 
-  /* ----------------------------------------------------------------- charts */
-  function pathFor(values, max, close) {
-    const w = 100, h = 100;
-    const top = max > 0 ? max : 1;
+  /* ---------------------------------------------------------------- trend bands */
+  /* One shared time axis, one band per metric (CPU / RAM / Disk / Network), each
+     drawn to its own scale with a label in the gutter. This is deliberately not
+     the "three identical cards containing copies of a copied chart component"
+     layout: every band shares the same x-axis so a spike in one is directly
+     readable against the others, and gaps are drawn as gaps. */
+  function bandPath(values, max, top, height) {
     const n = values.length;
-    const pts = values.map((v, i) => {
-      const x = n === 1 ? w : (i / (n - 1)) * w;
-      const y = h - clamp((v / top), 0, 1) * (h - 8) - 4;
-      return [x, y];
+    if (!n) return '';
+    const w = 100;
+    const span = Math.max(1, SAMPLE_CAP - 1);
+    const y = (v) => top + height - clamp(v / (max > 0 ? max : 1), 0, 1) * height;
+    const pts = [];
+    values.forEach((v, i) => {
+      if (v === null || v === undefined || !isFinite(v)) return;
+      const x = ((SAMPLE_CAP - n + i) / span) * w;
+      pts.push([x, y(v)]);
     });
-    const d = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(2)} ${p[1].toFixed(2)}`).join(' ');
-    return close && pts.length ? `${d} L${w} ${h} L0 ${h} Z` : d;
+    if (!pts.length) return '';
+    const line = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(2)} ${p[1].toFixed(2)}`).join(' ');
+    return `${line} L${pts[pts.length - 1][0].toFixed(2)} ${top + height} L${pts[0][0].toFixed(2)} ${top + height} Z`;
   }
 
-  let chartSeq = 0;
-  function chart(series, { max = 0, height = 74 } = {}) {
-    const all = series.reduce((a, s) => a.concat(s.values), []);
-    const peak = max || Math.max(1, ...all);
-    const gid = `cg${++chartSeq}`;
-    const paths = series.map((s, i) => {
-      const line = pathFor(s.values, peak, false);
-      const area = pathFor(s.values, peak, true);
-      return `${s.fill ? `<path d="${area}" fill="url(#${gid}-${i})" stroke="none"/>` : ''}
-        <path d="${line}" fill="none" stroke="${s.color}" stroke-width="1.6"
-          stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>`;
+  function trendBands() {
+    const bands = [
+      { key: 'cpu', label: 'CPU', color: '#a78bfa', unit: '%', value: 'ch-cpu' },
+      { key: 'memory', label: 'RAM', color: '#34d399', unit: 'MB', value: 'ch-mem' },
+      { key: 'disk', label: 'Disk', color: '#fbbf24', unit: 'MB', value: 'ch-disk' },
+      { key: 'net', label: 'Net', color: '#38bdf8', unit: 'B/s', value: 'ch-net' }
+    ];
+    const H = 22;
+    const gap = 4;
+    const total = bands.length * H + (bands.length - 1) * gap;
+    const rows = bands.map((b, i) => {
+      const top = i * (H + gap);
+      const values = b.key === 'net'
+        ? live.samples.rx.map((v, j) => (v || 0) + (live.samples.tx[j] || 0))
+        : live.samples[b.key];
+      const max = b.key === 'cpu' ? 100
+        : b.key === 'memory' ? (num(live.lastStats && live.lastStats.memory_limit) || 0)
+          : b.key === 'disk' ? (num(live.lastStats && live.lastStats.disk_limit) || 0)
+            : Math.max(1, ...live.samples.rx, ...live.samples.tx);
+      const d = bandPath(values, max, top, H);
+      return `<g class="tb-row">
+          <text class="tb-label" x="0" y="${top + H / 2 + 3}">${b.label}</text>
+          ${d ? `<path d="${d}" fill="${b.color}" fill-opacity=".16" stroke="none"/>` : ''}
+        </g>
+        <line class="tb-rule" x1="0" y1="${top + H}" x2="100" y2="${top + H}"/>`;
     }).join('');
-    const defs = series.map((s, i) => `<linearGradient id="${gid}-${i}" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="${s.color}" stop-opacity=".30"/>
-      <stop offset="100%" stop-color="${s.color}" stop-opacity="0"/></linearGradient>`).join('');
-    return `<div class="con-chart" style="height:${height}px"><svg viewBox="0 0 100 100" preserveAspectRatio="none">
-      <defs>${defs}</defs>
-      <line x1="0" y1="25" x2="100" y2="25" class="con-grid"/>
-      <line x1="0" y1="50" x2="100" y2="50" class="con-grid"/>
-      <line x1="0" y1="75" x2="100" y2="75" class="con-grid"/>
-      ${paths}
-    </svg></div>`;
+    return `<div class="tb-wrap" id="trend-bands">
+      <div class="tb-gutter">${bands.map((b) => `<span style="height:${H}px;line-height:${H}px">${b.label}</span>`).join('')}</div>
+      <svg class="tb-svg" viewBox="-16 0 116 ${total}" preserveAspectRatio="none" role="img"
+        aria-label="Live trend of CPU, memory, disk and network for the last ${SAMPLE_CAP} samples">${rows}</svg>
+    </div>`;
   }
 
   /* ------------------------------------------------------------------ shell */
@@ -175,129 +193,148 @@
 
     const suspended = !!server.is_suspended;
     host.innerHTML = `
-      <div class="con-grid ${live.expanded ? 'is-expanded' : ''}" id="con-grid">
-        <div class="con-main">
-          <div class="console-shell con-shell" id="con-shell">
-            <div class="con-bar">
-              <div class="console-lights"><i></i><i></i><i></i></div>
-              <span class="con-name" title="${esc(server.name)}">${esc(server.name)}</span>
-              <span id="con-status">${statusChip(suspended ? 'suspended' : (server.status || 'offline'))}</span>
-              <span class="con-mode" id="con-mode">—</span>
-              <span class="grow"></span>
-              <div class="con-tools">
-                <button class="con-tool" id="con-find" title="Search the console (Ctrl+F)">${I('search')}<span class="hide-sm">Find</span></button>
-                <div class="con-fs">
-                  <button class="con-tool sq" id="con-fs-down" title="Smaller text">A−</button>
-                  <select class="con-fs-select" id="con-fs" title="Console text size">
-                    ${[10, 11, 12, 12.2, 13, 14, 16, 18].map((sz) => `<option value="${sz}" ${Math.abs(sz - live.font) < 0.05 ? 'selected' : ''}>${sz}px</option>`).join('')}
-                  </select>
-                  <button class="con-tool sq" id="con-fs-up" title="Larger text">A+</button>
-                </div>
-                <button class="con-tool" id="con-wrap" title="Toggle line wrapping">${I('code')}<span class="hide-sm">Wrap</span></button>
-                <button class="con-tool" id="con-time" title="Prefix each line with the time it arrived">${I('clock')}<span class="hide-sm">Time</span></button>
-                <button class="con-tool" id="con-expand" title="Expand console">${I('external')}<span class="hide-sm">Expand</span></button>
-                <button class="con-tool" id="con-download" title="Download this log">${I('download')}<span class="hide-sm">Log</span></button>
-                <button class="con-tool" id="con-copy" title="Copy the visible console">${I('copy')}</button>
-                <button class="con-tool danger" id="con-clear" title="Clear this view only — the server log on disk is untouched">${I('trash')}<span class="hide-sm">Clear</span></button>
+      <div class="csl-stack">
+
+        <!-- 1. the terminal: header bar, find bar, output, command line -->
+        <section class="console-shell con-shell" id="con-shell">
+          <div class="con-bar">
+            <div class="console-lights"><i></i><i></i><i></i></div>
+            <span class="con-name" title="${esc(server.name)}">${esc(server.name)}</span>
+            <span id="con-status">${statusChip(suspended ? 'suspended' : (server.status || 'offline'))}</span>
+            <span class="con-mode" id="con-mode">—</span>
+            <span class="grow"></span>
+            <div class="con-tools">
+              <button class="con-tool" id="con-find" title="Search the console (Ctrl+F)">${I('search')}<span class="hide-sm">Find</span></button>
+              <div class="con-fs">
+                <button class="con-tool sq" id="con-fs-down" title="Smaller text">A−</button>
+                <select class="con-fs-select" id="con-fs" title="Console text size">
+                  ${[10, 11, 12, 12.2, 13, 14, 16, 18].map((sz) => `<option value="${sz}" ${Math.abs(sz - live.font) < 0.05 ? 'selected' : ''}>${sz}px</option>`).join('')}
+                </select>
+                <button class="con-tool sq" id="con-fs-up" title="Larger text">A+</button>
+              </div>
+              <button class="con-tool" id="con-wrap" title="Toggle line wrapping">${I('code')}<span class="hide-sm">Wrap</span></button>
+              <button class="con-tool" id="con-time" title="Prefix each line with the time it arrived">${I('clock')}<span class="hide-sm">Time</span></button>
+              <button class="con-tool" id="con-expand" title="Full-screen the terminal">${I('external')}<span class="hide-sm">Focus</span></button>
+              <button class="con-tool" id="con-download" title="Download this log">${I('download')}<span class="hide-sm">Log</span></button>
+              <button class="con-tool" id="con-copy" title="Copy the visible console">${I('copy')}</button>
+              <button class="con-tool danger" id="con-clear" title="Clear this view only — the server log on disk is untouched">${I('trash')}<span class="hide-sm">Clear</span></button>
+            </div>
+          </div>
+
+          <div class="con-findbar" id="con-findbar" hidden>
+            <label class="con-find-input">
+              ${I('search')}
+              <input id="con-query" placeholder="Filter console output — text or regular expression" autocomplete="off" spellcheck="false" />
+            </label>
+            <span class="con-hits" id="con-hits">no matches</span>
+            <button class="con-tool sq" id="con-prev" title="Previous match">${I('chevronUp')}</button>
+            <button class="con-tool sq" id="con-next" title="Next match">${I('chevronDown')}</button>
+            <label class="con-only"><input type="checkbox" id="con-only" /> <span>Only matches</span></label>
+            <button class="con-tool sq" id="con-find-close" title="Close">${I('x')}</button>
+          </div>
+
+          <div class="console-out con-out" id="con-out" tabindex="0" aria-live="polite"></div>
+          <button class="con-jump" id="con-jump" hidden>${I('arrowRight')} Jump to latest</button>
+
+          <div class="con-quick" id="con-quick">
+            ${[['list', 'players'], ['save-all', 'save world'], ['say Restarting soon', 'broadcast'], ['tps', 'tick rate'], ['whitelist on', 'whitelist']]
+        .map(([c, label]) => `<button class="con-chip" data-quick="${esc(c)}" title="${esc(c)}">${esc(label)}</button>`).join('')}
+            <span class="grow"></span>
+            <span class="con-count" id="con-count">0 lines</span>
+          </div>
+
+          <form class="console-in con-in" id="con-form" autocomplete="off">
+            <span class="prompt">${I('chevronRight')}</span>
+            <input id="con-cmd" placeholder="${suspended ? 'Server suspended — commands are disabled' : 'Type a command and press Enter — ↑ recalls history'}"
+              autocomplete="off" spellcheck="false" ${suspended ? 'disabled' : ''} />
+            <button class="con-tool sq" id="con-hist" title="History (↑)">${I('clock')}</button>
+            <button class="btn btn-sm btn-primary" type="submit" id="con-send" ${suspended ? 'disabled' : ''}>Send</button>
+          </form>
+        </section>
+
+        <!-- 2. shared-axis trend band -->
+        <section class="card csl-panel">
+          <div class="csl-panel-head">
+            <div class="grow"><h3>Trends</h3>
+              <div class="card-sub">One shared time axis · last ${SAMPLE_CAP} samples (≈${Math.round(SAMPLE_CAP * 1.5)}s)</div></div>
+            <span class="csl-live"></span>
+          </div>
+          <div class="csl-band" id="ch-box">${trendBands()}</div>
+          <div class="csl-legend">
+            <span><i style="background:#a78bfa"></i>CPU <b id="ch-cpu">—</b></span>
+            <span><i style="background:#34d399"></i>RAM <b id="ch-mem">—</b></span>
+            <span><i style="background:#fbbf24"></i>Disk <b id="ch-disk">—</b></span>
+            <span><i style="background:#38bdf8"></i>Net <b id="ch-net">—</b></span>
+          </div>
+        </section>
+
+        <!-- 3. telemetry rows + provenance panel -->
+        <section class="csl-grid">
+          <div class="card csl-panel">
+            <div class="csl-panel-head"><div class="grow"><h3>Telemetry</h3>
+              <div class="card-sub">Straight from the process tree — nothing estimated</div></div></div>
+            <div class="csl-rows">
+              <div class="csl-row" data-metric="cpu">
+                <span class="csl-ico cpu">${I('cpu')}</span>
+                <span class="csl-k">CPU</span>
+                <span class="csl-v"><b id="con-cpu-v">—</b><em id="con-cpu-p"></em></span>
+                <span class="csl-bar" id="con-cpu-bar">${meter(0)}</span>
+                <span class="csl-limit" id="con-cpu-max">—</span>
+              </div>
+              <div class="csl-row" data-metric="memory">
+                <span class="csl-ico mem">${I('memory')}</span>
+                <span class="csl-k">Memory</span>
+                <span class="csl-v"><b id="con-mem-v">—</b><em id="con-mem-p"></em></span>
+                <span class="csl-bar" id="con-mem-bar">${meter(0)}</span>
+                <span class="csl-limit" id="con-mem-max">—</span>
+              </div>
+              <div class="csl-row" data-metric="disk">
+                <span class="csl-ico disk">${I('disk')}</span>
+                <span class="csl-k">Disk</span>
+                <span class="csl-v"><b id="con-disk-v">—</b><em id="con-disk-p"></em></span>
+                <span class="csl-bar" id="con-disk-bar">${meter(0)}</span>
+                <span class="csl-limit" id="con-disk-max">—</span>
+              </div>
+              <div class="csl-row" data-metric="netin">
+                <span class="csl-ico nin">${I('downloadCloud')}</span>
+                <span class="csl-k">Net in</span>
+                <span class="csl-v"><b id="con-nin-v">—</b><em id="con-nin-t"></em></span>
+                <span class="csl-bar" id="con-nin-bar">${meter(0)}</span>
+                <span class="csl-limit">B/s</span>
+              </div>
+              <div class="csl-row" data-metric="netout">
+                <span class="csl-ico nout">${I('uploadCloud')}</span>
+                <span class="csl-k">Net out</span>
+                <span class="csl-v"><b id="con-nout-v">—</b><em id="con-nout-t"></em></span>
+                <span class="csl-bar" id="con-nout-bar">${meter(0)}</span>
+                <span class="csl-limit">B/s</span>
               </div>
             </div>
+          </div>
 
-            <div class="con-findbar" id="con-findbar" hidden>
-              <label class="con-find-input">
-                ${I('search')}
-                <input id="con-query" placeholder="Filter console output — text or regular expression" autocomplete="off" spellcheck="false" />
-              </label>
-              <span class="con-hits" id="con-hits">no matches</span>
-              <button class="con-tool sq" id="con-prev" title="Previous match">${I('chevronUp')}</button>
-              <button class="con-tool sq" id="con-next" title="Next match">${I('chevronDown')}</button>
-              <label class="con-only"><input type="checkbox" id="con-only" /> <span>Only matches</span></label>
-              <button class="con-tool sq" id="con-find-close" title="Close">${I('x')}</button>
+          <div class="card csl-panel">
+            <div class="csl-panel-head"><div class="grow"><h3>Connection</h3></div></div>
+            <div class="csl-facts">
+              <div class="csl-fact">
+                <span class="csl-fact-k">Address</span>
+                <button class="csl-fact-v csl-copy mono" id="con-addr" title="Copy the game address">${esc(ctl.address || '—')}</button>
+              </div>
+              <div class="csl-fact">
+                <span class="csl-fact-k">Uptime</span>
+                <b class="csl-fact-v" id="con-uptime">${server.status === 'running' ? '—' : 'offline'}</b>
+              </div>
+              <div class="csl-fact">
+                <span class="csl-fact-k">Processes</span>
+                <b class="csl-fact-v" id="con-procs">—</b>
+              </div>
+              <div class="csl-fact">
+                <span class="csl-fact-k">Runtime</span>
+                <b class="csl-fact-v" id="con-runtime">—</b>
+              </div>
             </div>
-
-            <div class="console-out con-out" id="con-out" tabindex="0" aria-live="polite"></div>
-
-            <button class="con-jump" id="con-jump" hidden>${I('arrowRight')} Jump to latest</button>
-
-            <div class="con-quick" id="con-quick">
-              ${[['list', 'players'], ['save-all', 'save world'], ['say Restarting soon', 'broadcast'], ['tps', 'tick rate'], ['whitelist on', 'whitelist']]
-        .map(([cmd, label]) => `<button class="con-chip" data-quick="${esc(cmd)}" title="${esc(cmd)}">${esc(label)}</button>`).join('')}
-              <span class="grow"></span>
-              <span class="con-count" id="con-count">0 lines</span>
-            </div>
-
-            <form class="console-in con-in" id="con-form" autocomplete="off">
-              <span class="prompt">${I('chevronRight')}</span>
-              <input id="con-cmd" placeholder="${suspended ? 'Server suspended — commands are disabled' : 'Type a command and press Enter — ↑ recalls history'}"
-                autocomplete="off" spellcheck="false" ${suspended ? 'disabled' : ''} />
-              <button class="con-tool sq" id="con-hist" title="History (↑)">${I('clock')}</button>
-              <button class="btn btn-sm btn-primary" type="submit" id="con-send" ${suspended ? 'disabled' : ''}>Send</button>
-            </form>
+            <div class="csl-src" id="con-note">Waiting for the first telemetry sample…</div>
           </div>
-        </div>
-
-        <aside class="con-side">
-          <div class="con-tiles">
-            <button class="con-tile" id="con-addr" title="Copy the game address">
-              <span class="con-tile-ico">${I('network')}</span>
-              <span class="con-tile-body"><span class="con-tile-k">Address</span>
-              <span class="con-tile-v mono" id="con-addr-v">${esc(ctl.address || '—')}</span></span>
-              ${I('copy')}
-            </button>
-            <div class="con-tile">
-              <span class="con-tile-ico">${I('clock')}</span>
-              <span class="con-tile-body"><span class="con-tile-k">Uptime</span>
-              <span class="con-tile-v" id="con-uptime">${server.status === 'running' ? '—' : 'offline'}</span></span>
-            </div>
-          </div>
-
-          <div class="con-card" data-metric="cpu">
-            <div class="con-card-head"><span class="con-ico cpu">${I('cpu')}</span><span class="con-card-t">CPU load</span>
-              <span class="con-card-max" id="con-cpu-max">—</span></div>
-            <div class="con-card-val"><b id="con-cpu-v">—</b><span class="con-card-pct" id="con-cpu-p">—</span></div>
-            <div id="con-cpu-bar" class="con-bar">${meter(0)}</div>
-          </div>
-
-          <div class="con-card" data-metric="memory">
-            <div class="con-card-head"><span class="con-ico mem">${I('memory')}</span><span class="con-card-t">Memory</span>
-              <span class="con-card-max" id="con-mem-max">—</span></div>
-            <div class="con-card-val"><b id="con-mem-v">—</b><span class="con-card-pct" id="con-mem-p">—</span></div>
-            <div id="con-mem-bar" class="con-bar">${meter(0)}</div>
-          </div>
-
-          <div class="con-card" data-metric="disk">
-            <div class="con-card-head"><span class="con-ico disk">${I('disk')}</span><span class="con-card-t">Disk</span>
-              <span class="con-card-max" id="con-disk-max">—</span></div>
-            <div class="con-card-val"><b id="con-disk-v">—</b><span class="con-card-pct" id="con-disk-p">—</span></div>
-            <div id="con-disk-bar" class="con-bar">${meter(0)}</div>
-          </div>
-
-          <div class="con-card" data-metric="netin">
-            <div class="con-card-head"><span class="con-ico nin">${I('downloadCloud')}</span><span class="con-card-t">Network in</span>
-              <span class="con-card-max" id="con-nin-max">B/s</span></div>
-            <div class="con-card-val"><b id="con-nin-v">—</b><span class="con-card-pct" id="con-nin-t"></span></div>
-            <div id="con-nin-bar" class="con-bar">${meter(0)}</div>
-          </div>
-
-          <div class="con-card" data-metric="netout">
-            <div class="con-card-head"><span class="con-ico nout">${I('uploadCloud')}</span><span class="con-card-t">Network out</span>
-              <span class="con-card-max" id="con-nout-max">B/s</span></div>
-            <div class="con-card-val"><b id="con-nout-v">—</b><span class="con-card-pct" id="con-nout-t"></span></div>
-            <div id="con-nout-bar" class="con-bar">${meter(0)}</div>
-          </div>
-
-          <div class="con-note" id="con-note">Waiting for the first telemetry sample…</div>
-        </aside>
-      </div>
-
-      <div class="con-charts">
-        <div class="con-chart-card"><div class="con-chart-head"><span>CPU</span><b id="ch-cpu">—</b></div><div id="ch-cpu-box"></div>
-          <div class="con-chart-foot" id="ch-cpu-foot">waiting for samples</div></div>
-        <div class="con-chart-card"><div class="con-chart-head"><span>Memory</span><b id="ch-mem">—</b></div><div id="ch-mem-box"></div>
-          <div class="con-chart-foot" id="ch-mem-foot">waiting for samples</div></div>
-        <div class="con-chart-card"><div class="con-chart-head"><span>Disk</span><b id="ch-disk">—</b></div><div id="ch-disk-box"></div>
-          <div class="con-chart-foot" id="ch-disk-foot">waiting for samples</div></div>
-        <div class="con-chart-card"><div class="con-chart-head"><span>Network</span><b id="ch-net">—</b></div><div id="ch-net-box"></div>
-          <div class="con-chart-foot" id="ch-net-foot">waiting for samples</div></div>
+        </section>
       </div>`;
 
     const out = host.querySelector('#con-out');
@@ -511,10 +548,13 @@
       repaint();
     };
 
+    /* Focus mode: the terminal takes the whole viewport so a long stack trace is
+       readable, and the telemetry panels come back when you toggle out. */
     host.querySelector('#con-expand').onclick = () => {
       live.expanded = !live.expanded;
       remember(LS.expanded, live.expanded ? '1' : '0');
-      host.querySelector('#con-grid').classList.toggle('is-expanded', live.expanded);
+      const stack = host.querySelector('.csl-stack');
+      if (stack) stack.classList.toggle('is-focus', live.expanded);
       paintChrome();
       if (live.follow) scrollToEnd();
     };
@@ -557,7 +597,7 @@
 
     /* ---- address tile ---- */
     host.querySelector('#con-addr').onclick = () => {
-      const v = host.querySelector('#con-addr-v').textContent;
+      const v = host.querySelector('#con-addr').textContent;
       if (v && v !== '—') copy(v);
       else toast('This server has no allocation yet', 'warn');
     };
@@ -652,7 +692,7 @@
     host.querySelectorAll('[data-quick]').forEach((b) => b.onclick = () => send(b.dataset.quick));
 
     /* ---- stats ---- */
-    host.querySelectorAll('.con-card[data-metric]').forEach((card) => {
+    host.querySelectorAll('.csl-row[data-metric]').forEach((card) => {
       card.addEventListener('click', () => {
         const note = host.querySelector('#con-note');
         if (note) note.scrollIntoView({ block: 'nearest' });
@@ -679,7 +719,7 @@
       } catch (e) { live.statsFails++; }
     }, 4000);
 
-    ['cpu', 'memory', 'disk', 'net'].forEach((k) => paintChart(k));
+    paintCharts();
 
     if (live.follow) setTimeout(scrollToEnd, 30);
     setTimeout(() => { try { cmd.focus(); } catch (e) {} }, 120);
@@ -691,7 +731,7 @@
     }
 
     function unmeasured(card, reason) {
-      const el = host.querySelector(`.con-card[data-metric="${card}"]`);
+      const el = host.querySelector(`.csl-row[data-metric="${card}"]`);
       if (el) el.classList.add('is-unmeasured');
       const reasonId = card === 'cpu' ? 'con-cpu-v' : card === 'memory' ? 'con-mem-v' : card === 'disk' ? 'con-disk-v' : card === 'netin' ? 'con-nin-v' : 'con-nout-v';
       setText(reasonId, 'not measured');
@@ -703,7 +743,7 @@
     }
 
     function measured(card) {
-      const el = host.querySelector(`.con-card[data-metric="${card}"]`);
+      const el = host.querySelector(`.csl-row[data-metric="${card}"]`);
       if (el) el.classList.remove('is-unmeasured');
     }
 
@@ -754,6 +794,10 @@
 
       const running = st.status === 'running' || st.status === 'starting' || st.status === 'restarting';
       setText('con-uptime', running ? dur(st.uptime) : 'offline');
+      setText('con-procs', st.processes === undefined || st.processes === null
+        ? '—'
+        : `${st.processes} process${st.processes === 1 ? '' : 'es'}`);
+      setText('con-runtime', st.measured === false ? 'not measured' : (st.mode === 'docker' ? 'docker container' : 'native process'));
 
       const cpuLimit = num(st.cpu_limit) && st.cpu_limit > 0 ? st.cpu_limit : 100;
       const memLimit = num(st.memory_limit) || Number(live.server.memory_mb) || 0;
@@ -776,7 +820,6 @@
         setText('con-cpu-p', `${Math.round(pct)}%`);
         bar('con-cpu-bar', pct, st.mode === 'docker' ? '' : 'blue');
         pushSample('cpu', cpu);
-        paintChart('cpu');
       }
 
       /* Memory */
@@ -789,7 +832,6 @@
         setText('con-mem-p', memLimit ? `${Math.round(pct)}%` : 'no limit set');
         bar('con-mem-bar', pct, 'live');
         pushSample('memory', st.memory);
-        paintChart('memory');
       }
 
       /* Disk — always measurable: it is the directory's real size */
@@ -802,7 +844,6 @@
         setText('con-disk-p', diskLimit ? `${Math.round(pct)}%` : 'no quota set');
         bar('con-disk-bar', pct, 'warn');
         pushSample('disk', st.disk);
-        paintChart('disk');
       }
 
       /* Network — only containers expose per-server counters */
@@ -818,7 +859,6 @@
         setText('con-nin-v', `${fmt.bytes(rx)}/s`);
         setText('con-nin-t', net.rx_bytes !== null && net.rx_bytes !== undefined ? `${fmt.bytes(net.rx_bytes)} total` : '');
         pushSample('rx', rx);
-        paintChart('net');
       }
       if (tx === null) { unmeasured('netout', 'native runs have no per-server socket counters'); setText('con-nout-t', ''); }
       else {
@@ -826,12 +866,11 @@
         setText('con-nout-v', `${fmt.bytes(tx)}/s`);
         setText('con-nout-t', net.tx_bytes !== null && net.tx_bytes !== undefined ? `${fmt.bytes(net.tx_bytes)} total` : '');
         pushSample('tx', tx);
-        paintChart('net');
       }
       if (rx === null && tx === null) {
-        setText('ch-net', 'not measured');
-        chartPlaceholder('ch-net-box', 'per-server traffic is only readable for container runs');
-        setText('ch-net-foot', st.mode === 'docker' ? 'waiting for the second sample' : 'native process — no socket counters');
+        // the network band keeps its place in the stack and simply says why it
+        // has no line, instead of inventing a flat zero
+        setText('ch-net', st.mode === 'docker' ? 'waiting for a sample' : 'not exposed on native runs');
       }
 
       /* provenance line */
@@ -845,46 +884,36 @@
         note.textContent = bits.join(' · ');
       }
 
+      paintCharts();
       if (live.ctl.setStats) live.ctl.setStats(st);
     }
 
-    function chartPlaceholder(boxId, text) {
-      const box = host.querySelector('#' + boxId);
-      if (!box) return;
-      box.innerHTML = `<div class="con-chart-empty"><span>${esc(text)}</span></div>`;
-    }
+    /* One repaint for the whole band: every metric shares the same x-axis, so
+       the legend values and the bands can never drift out of sync with each
+       other or show a sample count that is not in the drawing. */
+    function paintCharts() {
+      const box = host.querySelector('#ch-box');
+      if (box) box.innerHTML = trendBands();
 
-    function paintChart(key) {
-      const note = (n) => `${n} sample${n === 1 ? '' : 's'} · last ${Math.round((n * 1.5))}s`;
-      if (key === 'cpu') {
-        const v = live.samples.cpu.slice(-2);
-        setText('ch-cpu', v.length ? `${v[v.length - 1].toFixed(2)}%` : '—');
-        host.querySelector('#ch-cpu-box').innerHTML = chart([{ values: live.samples.cpu, color: '#a78bfa', fill: true }], { max: 100 });
-        setText('ch-cpu-foot', note(live.samples.cpu.length));
-        if (!live.samples.cpu.length) chartPlaceholder('ch-cpu-box', 'no samples yet');
-      } else if (key === 'memory') {
-        const last = live.samples.memory[live.samples.memory.length - 1];
-        setText('ch-mem', last === undefined ? '—' : fmt.mb(last));
-        const limit = num(live.lastStats && live.lastStats.memory_limit) || 0;
-        host.querySelector('#ch-mem-box').innerHTML = chart([{ values: live.samples.memory, color: '#34d399', fill: true }], { max: limit || 0 });
-        setText('ch-mem-foot', note(live.samples.memory.length));
-        if (!live.samples.memory.length) chartPlaceholder('ch-mem-box', 'no samples yet');
-      } else if (key === 'disk') {
-        const last = live.samples.disk[live.samples.disk.length - 1];
-        setText('ch-disk', last === undefined ? '—' : fmt.mb(last));
-        const limit = num(live.lastStats && live.lastStats.disk_limit) || 0;
-        host.querySelector('#ch-disk-box').innerHTML = chart([{ values: live.samples.disk, color: '#fbbf24', fill: true }], { max: limit || 0 });
-        setText('ch-disk-foot', note(live.samples.disk.length));
-        if (!live.samples.disk.length) chartPlaceholder('ch-disk-box', 'no samples yet');
-      } else if (key === 'net') {
-        const rxLast = live.samples.rx[live.samples.rx.length - 1] || 0;
-        const txLast = live.samples.tx[live.samples.tx.length - 1] || 0;
-        setText('ch-net', live.samples.rx.length ? `↓${fmt.bytes(rxLast)}/s ↑${fmt.bytes(txLast)}/s` : '—');
-        host.querySelector('#ch-net-box').innerHTML = chart([
-          { values: live.samples.rx, color: '#38bdf8', fill: true },
-          { values: live.samples.tx, color: '#fb7185', fill: false }
-        ], {});
-        setText('ch-net-foot', note(live.samples.rx.length));
+      const last = (arr) => (arr.length ? arr[arr.length - 1] : undefined);
+      const cpuV = last(live.samples.cpu);
+      const memV = last(live.samples.memory);
+      const diskV = last(live.samples.disk);
+      const rxV = last(live.samples.rx);
+      const txV = last(live.samples.tx);
+
+      setText('ch-cpu', cpuV === undefined ? '—' : `${cpuV.toFixed(1)}%`);
+      setText('ch-mem', memV === undefined ? '—' : fmt.mb(memV));
+      setText('ch-disk', diskV === undefined ? '—' : fmt.mb(diskV));
+      setText('ch-net', rxV === undefined && txV === undefined
+        ? '—'
+        : `↓${fmt.bytes(rxV || 0)}/s ↑${fmt.bytes(txV || 0)}/s`);
+
+      const liveDot = host.querySelector('.csl-live');
+      if (liveDot) {
+        const n = live.samples.cpu.length;
+        liveDot.classList.toggle('is-on', n > 1);
+        liveDot.title = n > 1 ? `${n} samples drawn` : 'waiting for a second sample';
       }
     }
 

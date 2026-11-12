@@ -1423,15 +1423,73 @@ html[data-theme='light'] .card::after { box-shadow: inset 0 1px 0 rgba(255, 255,
 /* ==========================================================================
    Console workspace (v4) — terminal + live telemetry + rolling charts
    ========================================================================== */
-.con-grid { display: grid; grid-template-columns: minmax(0, 1fr) 302px; gap: 14px; align-items: start; }
-.con-grid.is-expanded { grid-template-columns: minmax(0, 1fr); }
-.con-grid.is-expanded .con-side { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
-.con-grid.is-expanded .con-tiles { display: contents; }
-.con-grid.is-expanded .con-note { grid-column: 1 / -1; }
-.con-main { min-width: 0; }
-.con-side { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+/* ---------- vertical stack: terminal, shared trend band, telemetry ---------- */
+.csl-stack { display: flex; flex-direction: column; gap: 14px; }
+.csl-stack.is-focus .csl-panel { display: none; }
+.csl-stack.is-focus .con-shell { height: calc(100vh - 210px); min-height: 420px; }
+.csl-grid { display: grid; grid-template-columns: minmax(0, 1.62fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.csl-panel { padding: 0; overflow: hidden; }
+.csl-panel-head { display: flex; align-items: center; gap: 10px; padding: 13px 15px; border-bottom: 1px solid var(--line); }
+.csl-panel-head h3 { font-size: 13px; }
 
-/* ---------- terminal shell ---------- */
+/* ---------- shared-axis trend band ---------- */
+.csl-band { padding: 12px 14px 6px; }
+.tb-wrap { display: flex; gap: 8px; align-items: stretch; }
+.tb-gutter {
+  display: flex; flex-direction: column; gap: 4px; flex: 0 0 auto;
+  font-size: 9.4px; letter-spacing: .09em; text-transform: uppercase; font-weight: 700; color: var(--text-3);
+  text-align: right;
+}
+.tb-gutter span { display: block; }
+.tb-svg { flex: 1 1 auto; min-width: 0; height: 100px; display: block; overflow: visible; }
+.tb-svg .tb-label { display: none; }
+.tb-svg .tb-rule { stroke: rgba(255, 255, 255, .07); stroke-width: .35; vector-effect: non-scaling-stroke; }
+.csl-legend {
+  display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 8px 15px 13px;
+  font-size: 11.4px; color: var(--text-2);
+}
+.csl-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.csl-legend i { width: 8px; height: 8px; border-radius: 3px; display: inline-block; }
+.csl-legend b { font-family: var(--mono); font-size: 11.4px; color: var(--text); font-weight: 650; }
+.csl-live {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex: 0 0 8px; opacity: .5;
+}
+.csl-live.is-on { background: #34d399; opacity: 1; box-shadow: 0 0 0 3px rgba(52, 211, 153, .16); }
+
+/* ---------- telemetry rows ---------- */
+.csl-rows { display: flex; flex-direction: column; }
+.csl-row {
+  display: grid; grid-template-columns: 22px 74px minmax(96px, auto) minmax(60px, 1fr) 84px;
+  align-items: center; gap: 10px; padding: 10px 15px;
+  border-bottom: 1px solid var(--line);
+}
+.csl-row:last-child { border-bottom: 0; }
+.csl-ico { display: grid; place-items: center; color: var(--text-3); }
+.csl-ico svg { width: 15px; height: 15px; }
+.csl-ico.cpu { color: #a78bfa; } .csl-ico.mem { color: #34d399; }
+.csl-ico.disk { color: #fbbf24; } .csl-ico.nin { color: #38bdf8; } .csl-ico.nout { color: #fb7185; }
+.csl-k { font-size: 10.4px; letter-spacing: .1em; text-transform: uppercase; font-weight: 700; color: var(--text-3); }
+.csl-v { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+.csl-v b { font-size: 12.8px; font-weight: 680; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.csl-v em { font-style: normal; font-family: var(--mono); font-size: 10px; color: var(--text-3); white-space: nowrap; }
+.csl-bar .meter { height: 5px; }
+.csl-limit { font-family: var(--mono); font-size: 10.2px; color: var(--text-3); text-align: right; white-space: nowrap; }
+.csl-row.is-unmeasured .csl-v b { color: var(--text-3); font-size: 11px; font-weight: 600; }
+.csl-row.is-unmeasured .csl-bar .meter > span { background: transparent; }
+
+/* ---------- connection facts ---------- */
+.csl-facts { display: flex; flex-direction: column; }
+.csl-fact { display: flex; align-items: center; gap: 10px; padding: 10px 15px; border-bottom: 1px solid var(--line); }
+.csl-fact-k { font-size: 10.2px; letter-spacing: .1em; text-transform: uppercase; font-weight: 700; color: var(--text-3); flex: 0 0 92px; }
+.csl-fact-v { font-size: 12.2px; font-weight: 640; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.csl-copy {
+  background: none; border: 0; padding: 0; cursor: pointer; text-align: left; color: var(--text);
+  border-bottom: 1px dashed rgba(255, 255, 255, .2);
+}
+.csl-copy:hover { color: #c4b5fd; border-bottom-color: rgba(196, 181, 253, .6); }
+.csl-src { padding: 11px 15px 13px; font-size: 10.6px; line-height: 1.6; color: var(--text-3); }
+
+/* ---------- terminal shell ---------- *//* ---------- terminal shell ---------- */
 .con-shell { height: min(62vh, 620px); position: relative; }
 /* the hidden attribute must beat the display rules below */
 .con-findbar[hidden], .con-jump[hidden] { display: none !important; }
@@ -1542,75 +1600,17 @@ mark.con-hit { background: rgba(251, 191, 36, .32); color: #fff; border-radius: 
 }
 .con-hist-row:hover { border-color: rgba(139, 92, 246, .45); background: var(--onyx-soft); color: #fff; }
 
-/* ---------- side rail ---------- */
-.con-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.con-tile {
-  display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-radius: var(--radius);
-  border: 1px solid var(--line); background: var(--surface-2, rgba(255, 255, 255, .03));
-  color: var(--text-2); cursor: pointer; text-align: left; min-width: 0; font: inherit;
-  transition: border-color .16s var(--ease), transform .16s var(--ease);
-}
-.con-tile:hover { border-color: rgba(139, 92, 246, .4); transform: translateY(-1px); }
-.con-tile > svg { width: 12px; height: 12px; color: #6b6b83; flex: 0 0 12px; }
-.con-tile-ico { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 8px; background: var(--onyx-soft); color: #c4b5fd; flex: 0 0 24px; }
-.con-tile-ico svg { width: 13px; height: 13px; }
-.con-tile-body { display: flex; flex-direction: column; min-width: 0; }
-.con-tile-k { font-size: 9.5px; text-transform: uppercase; letter-spacing: .12em; color: #6b6b83; font-weight: 700; }
-.con-tile-v { font-size: 11.5px; color: #e6e6f2; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.con-card {
-  border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px;
-  background: var(--surface-2, rgba(255, 255, 255, .028)); position: relative; overflow: hidden;
-  transition: border-color .18s var(--ease);
-}
-.con-card:hover { border-color: rgba(139, 92, 246, .3); }
-.con-card-head { display: flex; align-items: center; gap: 7px; }
-.con-card-t { font-size: 10.5px; text-transform: uppercase; letter-spacing: .12em; font-weight: 700; color: #82829a; }
-.con-card-max { margin-left: auto; font-family: var(--mono); font-size: 10px; color: #6b6b83; }
-.con-ico { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 7px; flex: 0 0 22px; }
-.con-ico svg { width: 12px; height: 12px; }
-.con-ico.cpu { background: rgba(139, 92, 246, .16); color: #c4b5fd; }
-.con-ico.mem { background: rgba(52, 211, 153, .14); color: #6ee7b7; }
-.con-ico.disk { background: rgba(251, 191, 36, .14); color: #fcd34d; }
-.con-ico.nin { background: rgba(56, 189, 248, .14); color: #7dd3fc; }
-.con-ico.nout { background: rgba(251, 113, 133, .14); color: #fda4af; }
-.con-card-val { display: flex; align-items: baseline; gap: 8px; margin: 6px 0 7px; }
-.con-card-val b { font-size: 16px; font-weight: 700; color: #f1f1f8; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
-.con-card-pct { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: #9a9ab2; }
-.con-bar .meter { height: 5px; }
-.con-bar-empty {
-  height: 5px; border-radius: 99px; border: 1px dashed var(--line-strong, rgba(255, 255, 255, .16)); opacity: .7;
-}
-.con-card.is-unmeasured { border-style: dashed; }
-.con-card.is-unmeasured .con-card-val b { color: #82829a; font-size: 12px; font-weight: 600; }
-.con-note { font-size: 10.5px; line-height: 1.55; color: #6b6b83; padding: 2px 2px 0; }
-
-/* ---------- charts row ---------- */
-.con-charts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
-.con-chart-card {
-  border: 1px solid var(--line); border-radius: var(--radius); padding: 11px 13px 9px;
-  background: var(--surface-2, rgba(255, 255, 255, .025)); position: relative; overflow: hidden;
-}
-.con-chart-card::after {
-  content: ''; position: absolute; inset: 0; pointer-events: none;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05);
-}
-.con-chart-head { display: flex; align-items: baseline; gap: 8px; font-size: 11px; font-weight: 650; color: #b9b9cd; }
-.con-chart-head b { margin-left: auto; font-family: var(--mono); font-size: 11.5px; color: #e6e6f2; font-weight: 650; }
-.con-chart { width: 100%; position: relative; }
-.con-chart svg { width: 100%; height: 100%; display: block; overflow: visible; }
-.con-chart .con-grid { stroke: rgba(255, 255, 255, .05); stroke-width: .4; }
-.con-chart-foot { font-size: 10px; color: #6b6b83; font-family: var(--mono); margin-top: 2px; }
+/* the old five-card rail + tile styles are gone: telemetry is now a row list
+   (.csl-row) and connection facts live in .csl-fact */
 
 /* ---------- responsive ---------- */
 @media (max-width: 1180px) {
-  .con-charts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .csl-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 980px) {
-  .con-grid { grid-template-columns: minmax(0, 1fr); }
-  .con-side { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
-  .con-tiles { grid-column: 1 / -1; }
-  .con-note { grid-column: 1 / -1; }
+  .csl-grid { grid-template-columns: minmax(0, 1fr); }
+  .csl-row { grid-template-columns: 20px minmax(58px, auto) minmax(0, 1fr) 72px; }
+  .csl-row .csl-bar { display: none; }
   .con-shell { height: 58vh; }
   .hide-sm { display: none; }
 }
@@ -1626,7 +1626,7 @@ mark.con-hit { background: rgba(251, 191, 36, .32); color: #fff; border-radius: 
 
 @media (prefers-reduced-motion: reduce) {
   .con-findbar { animation: none !important; }
-  .con-chip:hover, .con-tile:hover { transform: none !important; }
+  .con-chip:hover { transform: none !important; }
 }
 
 .con-chart-empty {

@@ -162,6 +162,26 @@ console.log('\n--- server workspace chrome ---');
     /\.srv-rail\.is-open/.test(CSS) && /id="srv-rail-toggle"/.test(js) && /id="srv-rail-scrim"/.test(js));
 }
 
+/* ------------- 3c. console layout is ours, not a copy of the reference ---- */
+console.log('\n--- console layout identity ---');
+{
+  const cj = fs.readFileSync(PATH.join(PANEL, 'public/js/console.js'), 'utf8');
+  // The reference panel (Mpanel) is a 3/1 grid: xterm on the left and a rail of
+  // five identical metric cards on the right, with three copied chart cards
+  // underneath. Ours is a vertical stack with a shared-axis trend band.
+  ok('console is a vertical stack, not a side rail of cards', /\.csl-stack\s*\{[^}]*flex-direction:\s*column/.test(CSS)
+    && !/\.con-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 302px/.test(CSS));
+  ok('no leftover rail/card console classes in the markup',
+    !/class="con-side"|class="con-card"|class="con-tiles"|class="con-charts"/.test(cj));
+  ok('one shared trend band draws every metric on the same axis', /function trendBands\(/.test(cj)
+    && /SAMPLE_CAP/.test(cj) && /id="trend-bands"/.test(cj));
+  ok('metrics are compact rows with real limits, not repeated cards', /\.csl-row\s*\{/.test(CSS)
+    && (cj.match(/class="csl-row"/g) || []).length >= 5);
+  ok('the band keeps a real gap for unmeasurable metrics instead of a flat zero',
+    /not exposed on native runs/.test(cj));
+  ok('focus mode hides the telemetry panels, not the terminal', /\.csl-stack\.is-focus \.csl-panel/.test(CSS));
+}
+
 /* ------------------------------- 4. every script the page loads actually exists */
 console.log('\n--- asset wiring ---');
 {
