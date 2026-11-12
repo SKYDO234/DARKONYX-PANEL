@@ -50,6 +50,19 @@ counted from `panel/src/routes` + `panel/src/api`.
     counters or the process tree in `/proc`; disk is the real size of the server
     directory. Anything the host cannot measure prints "not measured" with the
     reason instead of a zero (`GET /api/servers/:id/stats`)
+    - **Console layout** — a vertical stack: terminal, then a single **trend band**
+    that draws CPU / RAM / Disk / Network on one shared time axis (multi-row SVG,
+    each band to its own scale), then compact telemetry rows with real limits
+    beside a Connection panel (address, uptime, process count, runtime, sample
+    provenance). Focus mode hides the telemetry panels and gives the terminal
+    the viewport
+  - **Section sidebar** — a vertical rail down the left of every server
+    workspace (Console, Files, Players, Worlds, Backups, Schedules, Network,
+    Databases, Sub-users, Addons, Marketplace, Activity, Settings) with the
+    page on the right; on phones it becomes an off-canvas drawer with a
+    Sections toggle and a scrim
+  - **Power bar** — Start / Restart / Stop / Force stop above the page content,
+    visible on every section
   - **Marketplace tab** — the Modrinth catalogue scoped to this server (plugins
     for Bukkit-family, mods for Forge/Fabric/NeoForge/Quilt), one-click install
     that resolves the file matching the server's loader + Minecraft version, an

@@ -107,49 +107,88 @@
 
     const suspended = !!s.is_suspended;
     host.innerHTML = `
-      <div class="srv-head" id="srv-head">
-        <div class="srv-head-id">
-          <div class="srv-icon" style="width:42px;height:42px;flex-basis:42px">${I('box')}</div>
-          <div class="grow" style="min-width:0">
-            <div class="row gap-8 wrap"><h2 class="srv-title" title="${esc(s.name)}">${esc(s.name)}</h2><span id="srv-status-chip">${statusChip(suspended ? 'suspended' : s.status)}</span></div>
-            <div class="row gap-8 wrap tiny dim mt-6 srv-meta">
-              <span>${esc(typeLabel(s.server_type))}</span><span>·</span>
-              <span class="mono">${esc(serverAddress(s))}</span><span>·</span>
-              <span>${esc(s.node_name || 'local node')}</span>
-              ${s.jar_type ? `<span>·</span><span>${esc(s.jar_type)} ${esc(s.jar_version || '')}</span>` : ''}
+      <div class="srv-shell">
+
+        <aside class="srv-rail" id="srv-rail" aria-label="Server sections">
+          <div class="srv-rail-head">
+            <div class="srv-icon" style="width:36px;height:36px;flex-basis:36px">${I('box')}</div>
+            <div class="srv-rail-id">
+              <b class="srv-rail-name" title="${esc(s.name)}">${esc(s.name)}</b>
+              <span class="srv-rail-type">${esc(typeLabel(s.server_type))}</span>
             </div>
           </div>
-        </div>
-        <div class="srv-live" id="live-strip">
-          ${[
+
+          <nav class="srv-rail-nav" id="srv-tabs" role="tablist" aria-orientation="vertical">
+            ${TABS.map((t) => `<button class="srv-tab ${t.id === tab ? 'active' : ''}" data-tab="${t.id}" role="tab" aria-selected="${t.id === tab}" title="${t.label}">${I(t.icon)}<span class="srv-tab-l">${t.label}</span></button>`).join('')}
+          </nav>
+
+          <div class="srv-rail-foot">
+            <a class="srv-rail-back" href="#/portal/servers" title="All servers">${I('chevronLeft')}<span class="srv-tab-l">All servers</span></a>
+          </div>
+        </aside>
+
+        <div class="srv-main">
+          <button class="srv-rail-toggle" id="srv-rail-toggle" aria-controls="srv-rail" aria-expanded="false" title="Sections">
+            ${I('menu')}<span>Sections</span>
+          </button>
+          <div class="srv-head" id="srv-head">
+            <div class="srv-head-id">
+              <div class="grow" style="min-width:0">
+                <div class="row gap-8 wrap">
+                  <h2 class="srv-title" title="${esc(s.name)}">${esc(s.name)}</h2>
+                  <span id="srv-status-chip">${statusChip(suspended ? 'suspended' : s.status)}</span>
+                </div>
+                <div class="row gap-8 wrap tiny dim mt-6 srv-meta">
+                  <span>${esc(typeLabel(s.server_type))}</span><span>·</span>
+                  <span class="mono">${esc(serverAddress(s))}</span><span>·</span>
+                  <span>${esc(s.node_name || 'local node')}</span>
+                  ${s.jar_type ? `<span>·</span><span>${esc(s.jar_type)} ${esc(s.jar_version || '')}</span>` : ''}
+                </div>
+              </div>
+            </div>
+            <div class="srv-live" id="live-strip">
+              ${[
         ['cpu', 'CPU'], ['memory', 'RAM'], ['disk', 'Disk'], ['uptime', 'Uptime']
       ].map(([key, label]) => `<div class="srv-live-cell">
-              <span class="srv-live-k">${label}</span><b class="mono srv-live-v" id="ls-${key}-v">—</b>
-              <div id="ls-${key}-b" class="srv-live-bar">${meter(0)}</div></div>`).join('')}
-        </div>
-        <div class="srv-tabs-row">
-          <div class="tabs srv-tabs" id="srv-tabs" role="tablist">
-            ${TABS.map((t) => `<button class="tab ${t.id === tab ? 'active' : ''}" data-tab="${t.id}" role="tab" aria-selected="${t.id === tab}">${I(t.icon)} <span>${t.label}</span></button>`).join('')}
+                  <span class="srv-live-k">${label}</span><b class="mono srv-live-v" id="ls-${key}-v">—</b>
+                  <div id="ls-${key}-b" class="srv-live-bar">${meter(0)}</div></div>`).join('')}
+            </div>
           </div>
+
+          ${suspended ? `<div class="banner-strip mt-14" style="border-color:rgba(251,113,133,.35);background:linear-gradient(100deg,rgba(251,113,133,.16),transparent)">${I('alert')}<span>This server is suspended${s.expiration_date ? ` (expired ${esc(fmt.date(s.expiration_date, false))})` : ''}. Power actions are disabled until an administrator renews it.</span></div>` : ''}
+
+          <div class="power-bar" id="power-bar">
+            <div class="power-group" role="group" aria-label="Server power">
+              <button class="power-btn start" data-pw="start" ${suspended ? 'disabled' : ''} title="Start server"><span class="power-ico">${I('play')}</span><span class="power-label">Start</span></button>
+              <button class="power-btn restart" data-pw="restart" ${suspended ? 'disabled' : ''} title="Restart server"><span class="power-ico">${I('restart')}</span><span class="power-label">Restart</span></button>
+              <button class="power-btn stop" data-pw="stop" ${suspended ? 'disabled' : ''} title="Graceful shutdown"><span class="power-ico">${I('stop')}</span><span class="power-label">Stop</span></button>
+              <button class="power-btn kill" data-pw="kill" ${suspended ? 'disabled' : ''} title="Force stop: terminate the process immediately"><span class="power-ico">${I('skull')}</span><span class="power-label">Force stop</span></button>
+            </div>
+            <div class="power-hint" id="power-hint">${suspended ? 'Power actions disabled while suspended' : 'Ready'}</div>
+          </div>
+
+          <div id="srv-tab-body" class="srv-tab-body mt-14"></div>
         </div>
-      </div>
+        <div class="srv-rail-scrim" id="srv-rail-scrim" hidden></div>
+      </div>`;
 
-      ${suspended ? `<div class="banner-strip mt-14" style="border-color:rgba(251,113,133,.35);background:linear-gradient(100deg,rgba(251,113,133,.16),transparent)">${I('alert')}<span>This server is suspended${s.expiration_date ? ` (expired ${esc(fmt.date(s.expiration_date, false))})` : ''}. Power actions are disabled until an administrator renews it.</span></div>` : ''}
+    /* sidebar: on phones it slides in from the left over the content */
+    const rail = host.querySelector('#srv-rail');
+    const railBtn = host.querySelector('#srv-rail-toggle');
+    const railScrim = host.querySelector('#srv-rail-scrim');
+    const setRail = (open) => {
+      if (!rail) return;
+      rail.classList.toggle('is-open', open);
+      if (railScrim) railScrim.hidden = !open;
+      if (railBtn) railBtn.setAttribute('aria-expanded', String(open));
+    };
+    if (railBtn) railBtn.onclick = () => setRail(!rail.classList.contains('is-open'));
+    if (railScrim) railScrim.onclick = () => setRail(false);
 
-      <div class="power-bar" id="power-bar">
-        <div class="power-group" role="group" aria-label="Server power">
-          <button class="power-btn start" data-pw="start" ${suspended ? 'disabled' : ''} title="Start server"><span class="power-ico">${I('play')}</span><span class="power-label">Start</span></button>
-          <button class="power-btn restart" data-pw="restart" ${suspended ? 'disabled' : ''} title="Restart server"><span class="power-ico">${I('restart')}</span><span class="power-label">Restart</span></button>
-          <button class="power-btn stop" data-pw="stop" ${suspended ? 'disabled' : ''} title="Stay-stopped: graceful shutdown"><span class="power-ico">${I('stop')}</span><span class="power-label">Stop</span></button>
-          <button class="power-btn kill" data-pw="kill" ${suspended ? 'disabled' : ''} title="Force stop: terminate the process immediately"><span class="power-ico">${I('skull')}</span><span class="power-label">Force stop</span></button>
-        </div>
-        <div class="power-hint" id="power-hint">${suspended ? 'Power actions disabled while suspended' : 'Ready'}</div>
-        <a class="btn btn-sm btn-ghost power-back" href="#/portal/servers">${I('chevronLeft')} All servers</a>
-      </div>
-
-      <div id="srv-tab-body" class="srv-tab-body mt-14"></div>`;
-
-    host.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => { location.hash = `#/server/${id}/${b.dataset.tab}`; });
+    host.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => {
+      setRail(false);
+      location.hash = `#/server/${id}/${b.dataset.tab}`;
+    });
     // the tab strip is wider than a phone: keep the active tab in view
     const activeTab = host.querySelector('#srv-tabs .tab.active');
     if (activeTab && activeTab.scrollIntoView) {

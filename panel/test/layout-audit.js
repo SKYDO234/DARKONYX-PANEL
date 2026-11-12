@@ -148,19 +148,38 @@ console.log('\n--- server workspace chrome ---');
   // the tab strip must be the last row of the header and right-aligned; if it
   // ever drifts back to a left-aligned strip above the content the user cannot
   // reach Files / Settings without hunting
-  ok('tab strip is inside the workspace header', (() => {
-    const head = js.indexOf('class="srv-head"');
-    const tabs = js.indexOf('id="srv-tabs"');
-    const body = js.indexOf('id="srv-tab-body"');
-    return head > -1 && tabs > head && tabs < body;
-  })());
-  ok('tab strip is right-aligned', /\.srv-tabs-row\s*\{[^}]*justify-content:\s*flex-end/.test(CSS));
-  ok('power bar sits outside the tab body (visible on every tab)',
-    /id="power-bar"[\s\S]*id="srv-tab-body"/.test(js));
+  ok('section rail is a real sidebar, not a tab strip', /class="srv-rail"/.test(js) && /\.srv-shell\s*\{[^}]*grid-template-columns:\s*216px/.test(CSS));
+  ok('the page content sits beside the rail', /class="srv-main"/.test(js) && /srv-rail[\s\S]*srv-main/.test(js));
+  // the tabs are generated from the TABS array, so count its entries
+  const tabCount = (js.match(/\{ id: '[a-z]+', label: '[^']+', icon: '[a-z]+' \}/g) || []).length;
+  ok('all thirteen sections are listed in the rail', tabCount >= 13, `${tabCount} tabs`);
+  ok('rail tabs are vertical', /\.srv-rail-nav\s*\{[^}]*flex-direction:\s*column/.test(CSS));
+  ok('power bar sits above the tab body (visible on every section)', /id="power-bar"[\s\S]*id="srv-tab-body"/.test(js));
   const labels = [...js.matchAll(/data-pw="(\w+)"[\s\S]*?power-label">([^<]+)</g)].map((m) => `${m[1]}:${m[2].trim()}`);
   ok('power bar offers start / restart / stop / force stop', labels.length === 4 && /Force stop/.test(labels.join(' ')), labels.join(' '));
   ok('force stop is labelled, not a bare skull icon', /power-label">Force stop</.test(js));
-  ok('sticky header is not inside an animated container', /:has\(\.srv-head\)/.test(CSS));
+  ok('narrow screens get an off-canvas drawer with a toggle',
+    /\.srv-rail\.is-open/.test(CSS) && /id="srv-rail-toggle"/.test(js) && /id="srv-rail-scrim"/.test(js));
+}
+
+/* ------------- 3c. console layout is ours, not a copy of the reference ---- */
+console.log('\n--- console layout identity ---');
+{
+  const cj = fs.readFileSync(PATH.join(PANEL, 'public/js/console.js'), 'utf8');
+  // The reference panel (Mpanel) is a 3/1 grid: xterm on the left and a rail of
+  // five identical metric cards on the right, with three copied chart cards
+  // underneath. Ours is a vertical stack with a shared-axis trend band.
+  ok('console is a vertical stack, not a side rail of cards', /\.csl-stack\s*\{[^}]*flex-direction:\s*column/.test(CSS)
+    && !/\.con-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 302px/.test(CSS));
+  ok('no leftover rail/card console classes in the markup',
+    !/class="con-side"|class="con-card"|class="con-tiles"|class="con-charts"/.test(cj));
+  ok('one shared trend band draws every metric on the same axis', /function trendBands\(/.test(cj)
+    && /SAMPLE_CAP/.test(cj) && /id="trend-bands"/.test(cj));
+  ok('metrics are compact rows with real limits, not repeated cards', /\.csl-row\s*\{/.test(CSS)
+    && (cj.match(/class="csl-row"/g) || []).length >= 5);
+  ok('the band keeps a real gap for unmeasurable metrics instead of a flat zero',
+    /not exposed on native runs/.test(cj));
+  ok('focus mode hides the telemetry panels, not the terminal', /\.csl-stack\.is-focus \.csl-panel/.test(CSS));
 }
 
 /* ------------------------------- 4. every script the page loads actually exists */
