@@ -54,19 +54,23 @@ counted from `panel/src/routes` + `panel/src/api`.
     panels, a fine engineering grid behind a single warm bloom, a compact icon
     dock, a real command bar (⌘K) in the top bar, and a single centred sign-in
     card. Deliberately not the violet-on-black glass dashboard look
-  - **Console layout** — a vertical stack: terminal, then a single **trend band**
-    that draws CPU / RAM / Disk / Network on one shared time axis (multi-row SVG,
-    each band to its own scale), then compact telemetry rows with real limits
-    beside a Connection panel (address, uptime, process count, runtime, sample
-    provenance). Focus mode hides the telemetry panels and gives the terminal
-    the viewport
+  - **Console layout** — the JTG-style server workspace: a header strip with a
+    live status orb, the server name and the terminal tools, then a two-column
+    row with the **terminal on the left** and a **rail of live metric tiles on
+    the right** (address, uptime, CPU, memory, disk, network in/out — each with
+    its value, its real limit and a thin fill line), then **three rolling
+    charts** under the terminal (CPU, memory, network) each with its own
+    y-scale and 60 s window. Focus mode hides the rail and charts and gives the
+    terminal the viewport
   - **Section sidebar** — a vertical rail down the left of every server
     workspace (Console, Files, Players, Worlds, Backups, Schedules, Network,
     Databases, Sub-users, Addons, Marketplace, Activity, Settings) with the
     page on the right; on phones it becomes an off-canvas drawer with a
     Sections toggle and a scrim
-  - **Power bar** — Start / Restart / Stop / Force stop above the page content,
-    visible on every section
+  - **Power controls in the rail** — Start / Restart / Stop / Force stop sit
+    under the server identity at the top of that rail, with the live status dot
+    and a copyable address, so they are visible on every section without
+    scrolling the page
   - **Marketplace tab** — the Modrinth catalogue scoped to this server (plugins
     for Bukkit-family, mods for Forge/Fabric/NeoForge/Quilt), one-click install
     that resolves the file matching the server's loader + Minecraft version, an

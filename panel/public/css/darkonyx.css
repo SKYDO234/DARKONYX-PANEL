@@ -1452,77 +1452,130 @@ html[data-theme='light'] .card::after { box-shadow: inset 0 1px 0 rgba(255, 255,
 /* ==========================================================================
    Console workspace (v4) — terminal + live telemetry + rolling charts
    ========================================================================== */
-/* ---------- vertical stack: terminal, shared trend band, telemetry ---------- */
-.csl-stack { display: flex; flex-direction: column; gap: 14px; }
-.csl-stack.is-focus .csl-panel { display: none; }
-.csl-stack.is-focus .con-shell { height: calc(100vh - 210px); min-height: 420px; }
-.csl-grid { display: grid; grid-template-columns: minmax(0, 1.62fr) minmax(0, 1fr); gap: 14px; align-items: start; }
-.csl-panel { padding: 0; overflow: hidden; }
-.csl-panel-head { display: flex; align-items: center; gap: 10px; padding: 13px 15px; border-bottom: 1px solid var(--line); }
-.csl-panel-head h3 { font-size: 13px; }
+/* ---------- layout: terminal left, live metric rail right, charts below ----
+   The structure is a two-column workspace: the terminal owns the wide column
+   and a rail of metric tiles runs down the right, with one rolling chart per
+   resource underneath. The rail is not a grid of copies — every tile shows a
+   value, its limit and where the number came from. */
+.csl-wrap { display: flex; flex-direction: column; gap: 12px; }
+.csl-wrap.is-focus .csl-cols { grid-template-columns: minmax(0, 1fr); }
+.csl-wrap.is-focus .csl-stats,
+.csl-wrap.is-focus .csl-charts { display: none; }
+.csl-wrap.is-focus .con-shell { height: calc(100vh - 200px); min-height: 460px; }
 
-/* ---------- shared-axis trend band ---------- */
-.csl-band { padding: 12px 14px 6px; }
-.tb-wrap { display: flex; gap: 8px; align-items: stretch; }
-.tb-gutter {
-  display: flex; flex-direction: column; gap: 4px; flex: 0 0 auto;
-  font-size: 9.4px; letter-spacing: .09em; text-transform: uppercase; font-weight: 700; color: var(--text-3);
-  text-align: right;
+/* header strip: status orb, name, live tools */
+.csl-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 12px; border-radius: 11px;
+  border: 1px solid var(--line); background: var(--panel);
 }
-.tb-gutter span { display: block; }
-.tb-svg { flex: 1 1 auto; min-width: 0; height: 100px; display: block; overflow: visible; }
-.tb-svg .tb-label { display: none; }
-.tb-svg .tb-rule { stroke: rgba(255, 255, 255, .07); stroke-width: .35; vector-effect: non-scaling-stroke; }
-.csl-legend {
-  display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 8px 15px 13px;
-  font-size: 11.4px; color: var(--text-2);
+.csl-orb { width: 9px; height: 9px; border-radius: 50%; background: var(--text-3); flex: 0 0 9px; }
+.csl-orb.is-running { background: #34d399; box-shadow: 0 0 0 3px rgba(52, 211, 153, .16); }
+.csl-orb.is-starting, .csl-orb.is-restarting { background: #fbbf24; box-shadow: 0 0 0 3px rgba(251, 191, 36, .16); }
+.csl-orb.is-stopping { background: #fb7185; box-shadow: 0 0 0 3px rgba(251, 113, 133, .16); }
+.csl-orb.is-suspended { background: #fb7185; }
+.csl-name {
+  font-size: 13px; font-weight: 700; color: var(--text); min-width: 0;
+  max-width: 26ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.csl-legend span { display: inline-flex; align-items: center; gap: 6px; }
-.csl-legend i { width: 8px; height: 8px; border-radius: 3px; display: inline-block; }
-.csl-legend b { font-family: var(--mono); font-size: 11.4px; color: var(--text); font-weight: 650; }
-.csl-live {
-  width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex: 0 0 8px; opacity: .5;
-}
-.csl-live.is-on { background: #34d399; opacity: 1; box-shadow: 0 0 0 3px rgba(52, 211, 153, .16); }
 
-/* ---------- telemetry rows ---------- */
-.csl-rows { display: flex; flex-direction: column; }
-.csl-row {
-  display: grid; grid-template-columns: 22px 74px minmax(96px, auto) minmax(60px, 1fr) 84px;
-  align-items: center; gap: 10px; padding: 10px 15px;
-  border-bottom: 1px solid var(--line);
+/* the two columns */
+.csl-cols {
+  display: grid; grid-template-columns: minmax(0, 1fr) 292px;
+  gap: 12px; align-items: stretch;
 }
-.csl-row:last-child { border-bottom: 0; }
-.csl-ico { display: grid; place-items: center; color: var(--text-3); }
-.csl-ico svg { width: 15px; height: 15px; }
-.csl-ico.cpu { color: #f0b866; } .csl-ico.mem { color: #34d399; }
-.csl-ico.disk { color: #fbbf24; } .csl-ico.nin { color: #38bdf8; } .csl-ico.nout { color: #fb7185; }
-.csl-k { font-size: 10.4px; letter-spacing: .1em; text-transform: uppercase; font-weight: 700; color: var(--text-3); }
-.csl-v { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
-.csl-v b { font-size: 12.8px; font-weight: 680; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.csl-v em { font-style: normal; font-family: var(--mono); font-size: 10px; color: var(--text-3); white-space: nowrap; }
-.csl-bar .meter { height: 5px; }
-.csl-limit { font-family: var(--mono); font-size: 10.2px; color: var(--text-3); text-align: right; white-space: nowrap; }
-.csl-row.is-unmeasured .csl-v b { color: var(--text-3); font-size: 11px; font-weight: 600; }
-.csl-row.is-unmeasured .csl-bar .meter > span { background: transparent; }
+.csl-stats {
+  display: flex; flex-direction: column; gap: 8px; min-width: 0;
+  align-content: start;
+}
 
-/* ---------- connection facts ---------- */
-.csl-facts { display: flex; flex-direction: column; }
-.csl-fact { display: flex; align-items: center; gap: 10px; padding: 10px 15px; border-bottom: 1px solid var(--line); }
-.csl-fact-k { font-size: 10.2px; letter-spacing: .1em; text-transform: uppercase; font-weight: 700; color: var(--text-3); flex: 0 0 92px; }
-.csl-fact-v { font-size: 12.2px; font-weight: 640; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* metric tile: label, big value, limit, thin fill */
+.csl-stat {
+  position: relative; overflow: hidden; min-height: 74px;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  align-content: center; gap: 2px 8px;
+  padding: 10px 12px 12px 14px; border-radius: 10px;
+  border: 1px solid var(--line);
+  background: linear-gradient(100deg, var(--panel-2), var(--panel) 62%);
+}
+.csl-watermark {
+  position: absolute; left: -6px; bottom: -10px; color: rgba(255, 240, 225, .045);
+  transform: rotate(-16deg); pointer-events: none; display: block;
+}
+.csl-watermark svg { width: 62px; height: 62px; }
+.csl-k {
+  grid-column: 1 / -1; font-size: 9.8px; letter-spacing: .11em; text-transform: uppercase;
+  font-weight: 700; color: var(--text-3); position: relative; z-index: 1;
+}
+.csl-v {
+  display: flex; align-items: baseline; gap: 7px; min-width: 0;
+  position: relative; z-index: 1;
+}
+.csl-v b {
+  font-size: 15px; font-weight: 700; color: var(--text);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.csl-v em { font-style: normal; font-family: var(--mono); font-size: 10px; color: var(--text-3); }
+.csl-limit {
+  align-self: end; justify-self: end; font-family: var(--mono); font-size: 10px;
+  color: var(--text-3); white-space: nowrap; position: relative; z-index: 1;
+}
 .csl-copy {
-  background: none; border: 0; padding: 0; cursor: pointer; text-align: left; color: var(--text);
-  border-bottom: 1px dashed rgba(255, 255, 255, .2);
+  background: none; border: 0; padding: 0; cursor: pointer; text-align: left;
+  font-family: var(--mono); font-size: 12.4px; color: var(--text);
+  border-bottom: 1px dashed rgba(255, 240, 225, .22); justify-self: start;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .csl-copy:hover { color: #fad6a5; border-bottom-color: rgba(250, 214, 165, .6); }
-.csl-src { padding: 11px 15px 13px; font-size: 10.6px; line-height: 1.6; color: var(--text-3); }
+.csl-fill {
+  grid-column: 1 / -1; height: 4px; margin-top: 6px; border-radius: 3px;
+  background: rgba(255, 240, 225, .07); overflow: hidden; position: relative; z-index: 1;
+}
+.csl-fill > span {
+  display: block; height: 100%; border-radius: 3px; background: var(--onyx);
+  transition: width .35s var(--ease);
+}
+.csl-fill > span.is-warm { background: #fbbf24; }
+.csl-fill > span.is-hot { background: #fb7185; }
+.csl-stat.is-unmeasured .csl-fill { display: none; }
+.csl-stat.is-unmeasured .csl-v b { color: var(--text-3); font-size: 11.4px; font-weight: 600; }
+.csl-provenance {
+  margin-top: auto; padding: 9px 12px; border-radius: 9px;
+  border: 1px dashed var(--line); color: var(--text-3);
+  font-size: 10.4px; line-height: 1.55;
+}
+
+/* three rolling charts, one per resource */
+.csl-charts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.csl-chart {
+  border-radius: 11px; border: 1px solid var(--line); background: var(--panel);
+  padding: 11px 13px 8px; min-width: 0;
+}
+.csl-chart-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.csl-chart-head h3 { font-size: 11.4px; font-weight: 700; color: var(--text); }
+.csl-chart-head b {
+  margin-left: auto; font-family: var(--mono); font-size: 11.4px; font-weight: 650; color: var(--text-2);
+}
+.csl-chart-keys {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 9.4px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3);
+}
+.csl-chart-keys i { width: 7px; height: 7px; border-radius: 2px; display: inline-block; }
+.csl-chart-body { height: 118px; }
+.csl-spark { width: 100%; height: 100%; display: block; }
+.csl-axis { stroke: rgba(255, 240, 225, .08); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.csl-pair { display: grid; grid-template-rows: 1fr 1fr; gap: 4px; height: 100%; }
+.csl-pair .csl-spark { height: 100%; }
+.csl-chart-empty {
+  display: grid; place-items: center; height: 100%; color: var(--text-3);
+  font-size: 10.4px; border: 1px dashed var(--line); border-radius: 8px;
+}
 
 /* ---------- terminal shell ---------- *//* ---------- terminal shell ---------- */
 .con-shell { height: min(62vh, 620px); position: relative; }
 /* the hidden attribute must beat the display rules below */
 .con-findbar[hidden], .con-jump[hidden] { display: none !important; }
-.con-shell .con-bar {
+.con-shell .csl-bar, .con-shell .con-bar {
   display: flex; align-items: center; gap: 10px; padding: 8px 12px; flex-wrap: nowrap;
   border-bottom: 1px solid rgba(255, 255, 255, .07);
   background: linear-gradient(180deg, rgba(255, 255, 255, .05), rgba(255, 255, 255, .015));
@@ -1633,24 +1686,27 @@ mark.con-hit { background: rgba(251, 191, 36, .32); color: #fff; border-radius: 
    (.csl-row) and connection facts live in .csl-fact */
 
 /* ---------- responsive ---------- */
-@media (max-width: 1180px) {
-  .csl-grid { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 1240px) {
+  /* the rail folds under the terminal as a two-up tile grid */
+  .csl-cols { grid-template-columns: minmax(0, 1fr); }
+  .csl-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 8px; }
+  .csl-provenance { grid-column: 1 / -1; margin-top: 0; }
+  .csl-stat { min-height: 68px; }
 }
 @media (max-width: 980px) {
-  .csl-grid { grid-template-columns: minmax(0, 1fr); }
-  .csl-row { grid-template-columns: 20px minmax(58px, auto) minmax(0, 1fr) 72px; }
-  .csl-row .csl-bar { display: none; }
+  .csl-charts { grid-template-columns: minmax(0, 1fr); }
   .con-shell { height: 58vh; }
   .hide-sm { display: none; }
 }
 @media (max-width: 640px) {
-  .con-charts { grid-template-columns: minmax(0, 1fr); }
   .con-shell { height: 62vh; }
-  .con-name { max-width: 90px; }
+  .csl-name { max-width: 12ch; }
   .con-tools { gap: 2px; }
   .con-findbar { flex-wrap: wrap; }
   .con-quick { overflow-x: auto; flex-wrap: nowrap; }
   .con-jump { bottom: 96px; }
+  .csl-stats { grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); }
+  .csl-chart-body { height: 104px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1826,12 +1882,48 @@ mark.con-hit { background: rgba(251, 191, 36, .32); color: #fff; border-radius: 
 .srv-rail-scrim { display: none; }
 .srv-rail-toggle { display: none; }
 
+/* ---------- power controls live in the rail (visible on every section) ---- */
+.srv-power {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 9px; margin: 2px 0 6px; border-radius: 11px;
+  border: 1px solid var(--line); background: rgba(255, 255, 255, .025);
+}
+.srv-power-meta { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.srv-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex: 0 0 8px; }
+.srv-dot.is-running { background: #34d399; box-shadow: 0 0 0 3px rgba(52, 211, 153, .16); }
+.srv-dot.is-starting, .srv-dot.is-restarting { background: #fbbf24; }
+.srv-dot.is-stopping { background: #fb7185; }
+.srv-power-status {
+  font-size: 10.4px; letter-spacing: .1em; text-transform: uppercase; font-weight: 700;
+  color: var(--text-2); white-space: nowrap;
+}
+.srv-addr {
+  margin-left: auto; background: none; border: 0; padding: 0; cursor: pointer;
+  font-size: 10.2px; color: var(--text-3); max-width: 92px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  border-bottom: 1px dashed rgba(255, 240, 225, .18);
+}
+.srv-addr:hover { color: var(--text); }
+.srv-power .power-group { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.srv-power .power-btn {
+  width: auto; height: 30px; padding: 0 6px; justify-content: center;
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10.6px; font-weight: 650; border-radius: 8px;
+}
+.srv-power .power-ico { display: inline-flex; }
+.srv-power .power-btn svg { width: 13px; height: 13px; }
+.srv-power .power-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.srv-power .power-hint {
+  font-size: 10.2px; color: var(--text-3); line-height: 1.5;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
 /* ---------- content column ---------- */
 .srv-main { min-width: 0; }
 .srv-head {
   display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px 18px;
-  padding: 14px 16px; border-radius: var(--radius-lg, 16px);
-  border: 1px solid var(--line); background: var(--surface-1, rgba(255, 255, 255, .03));
+  padding: 13px 15px; border-radius: 11px;
+  border: 1px solid var(--line); background: var(--panel);
 }
 .srv-head-id { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .srv-title { font-size: 17px; font-weight: 700; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 34ch; }
@@ -1839,32 +1931,13 @@ mark.con-hit { background: rgba(251, 191, 36, .32); color: #fff; border-radius: 
 .srv-live { display: flex; gap: 10px; align-items: stretch; flex-wrap: wrap; justify-content: flex-end; }
 .srv-live-cell {
   display: grid; grid-template-columns: auto auto; align-items: center; gap: 2px 8px;
-  padding: 6px 10px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255, 255, 255, .022);
+  padding: 6px 10px; border-radius: 9px; border: 1px solid var(--line); background: rgba(255, 240, 225, .022);
   min-width: 108px;
 }
 .srv-live-k { font-size: 9.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--text-3); font-weight: 650; }
 .srv-live-v { font-size: 12px; color: var(--text); text-align: right; white-space: nowrap; }
 .srv-live-bar { grid-column: 1 / -1; margin-top: 3px; }
 .srv-live-bar .meter { height: 4px; }
-
-.power-bar {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  margin-top: 12px; padding: 8px 10px; border-radius: 13px;
-  border: 1px solid var(--line); background: rgba(255, 255, 255, .025);
-}
-.power-bar .power-group { gap: 6px; }
-.power-bar .power-btn {
-  width: auto; height: 32px; padding: 0 12px; display: inline-flex; align-items: center; gap: 7px;
-  font-size: 12px; font-weight: 620; color: var(--text-2);
-}
-.power-bar .power-ico { display: inline-flex; }
-.power-bar .power-label { white-space: nowrap; }
-.power-bar .power-btn.start { color: #6ee7b7; border-color: rgba(52, 211, 153, .3); background: var(--live-soft, rgba(52, 211, 153, .1)); }
-.power-bar .power-btn.restart { color: #fcd34d; border-color: rgba(251, 191, 36, .28); background: var(--warn-soft, rgba(251, 191, 36, .08)); }
-.power-bar .power-btn.stop { color: #fda4af; border-color: rgba(251, 113, 133, .26); background: var(--danger-soft, rgba(251, 113, 133, .08)); }
-.power-bar .power-btn.kill { color: #fb7185; border-color: rgba(225, 29, 72, .3); }
-.power-bar .power-btn.kill:hover { color: #fff; }
-.power-hint { flex: 1; min-width: 120px; font-size: 11.5px; color: var(--text-3); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .srv-tab-body { min-width: 0; }
 
 /* the sticky header must never sit inside an animated ancestor */
@@ -1902,15 +1975,12 @@ mark.con-hit { background: rgba(251, 191, 36, .32); color: #fff; border-radius: 
   .srv-title { font-size: 15px; max-width: 100%; }
   .srv-live { gap: 8px; }
   .srv-live-cell { min-width: calc(50% - 4px); flex: 1; }
-  .power-bar { gap: 8px; padding: 8px; }
-  .power-bar .power-btn { flex: 1 1 46%; justify-content: center; }
-  .power-hint { order: 3; flex-basis: 100%; text-align: left; }
 }
 
 /* ---------- server workspace: light theme + mobile fallback ---------- */
 html[data-theme='light'] .srv-head { background: rgba(255, 255, 255, .82); }
 html[data-theme='light'] .srv-live-cell { background: rgba(12, 12, 30, .022); }
-html[data-theme='light'] .power-bar { background: rgba(12, 12, 30, .02); }
+html[data-theme='light'] .srv-power { background: rgba(12, 12, 30, .02); }
 
 /* No :has() support (older Firefox): fall back to animating nothing rather
    than letting the sticky header be trapped by a transform. */
@@ -1937,4 +2007,4 @@ html[data-theme='light'] .srv-tab:hover { background: rgba(12, 12, 30, .04); }
 html[data-theme='light'] .srv-tab.active { background: linear-gradient(95deg, rgba(180, 83, 9, .16), rgba(180, 83, 9, .02) 70%, transparent); }
 html[data-theme='light'] .srv-head { background: rgba(255, 255, 255, .82); }
 html[data-theme='light'] .srv-live-cell { background: rgba(12, 12, 30, .022); }
-html[data-theme='light'] .power-bar { background: rgba(12, 12, 30, .02); }
+html[data-theme='light'] .srv-power { background: rgba(12, 12, 30, .02); }

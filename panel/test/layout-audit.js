@@ -154,7 +154,9 @@ console.log('\n--- server workspace chrome ---');
   const tabCount = (js.match(/\{ id: '[a-z]+', label: '[^']+', icon: '[a-z]+' \}/g) || []).length;
   ok('all thirteen sections are listed in the rail', tabCount >= 13, `${tabCount} tabs`);
   ok('rail tabs are vertical', /\.srv-rail-nav\s*\{[^}]*flex-direction:\s*column/.test(CSS));
-  ok('power bar sits above the tab body (visible on every section)', /id="power-bar"[\s\S]*id="srv-tab-body"/.test(js));
+  ok('power controls live in the section rail, above the menu (visible on every section)',
+    /id="srv-rail"[\s\S]*id="power-bar"[\s\S]*id="srv-tabs"/.test(js)
+    && /\.srv-power\s*\{/.test(CSS));
   const labels = [...js.matchAll(/data-pw="(\w+)"[\s\S]*?power-label">([^<]+)</g)].map((m) => `${m[1]}:${m[2].trim()}`);
   ok('power bar offers start / restart / stop / force stop', labels.length === 4 && /Force stop/.test(labels.join(' ')), labels.join(' '));
   ok('force stop is labelled, not a bare skull icon', /power-label">Force stop</.test(js));
@@ -162,24 +164,31 @@ console.log('\n--- server workspace chrome ---');
     /\.srv-rail\.is-open/.test(CSS) && /id="srv-rail-toggle"/.test(js) && /id="srv-rail-scrim"/.test(js));
 }
 
-/* ------------- 3c. console layout is ours, not a copy of the reference ---- */
-console.log('\n--- console layout identity ---');
+/* ------------- 3c. console workspace structure ----------------------------- */
+console.log('\n--- console workspace structure ---');
 {
   const cj = fs.readFileSync(PATH.join(PANEL, 'public/js/console.js'), 'utf8');
-  // The reference panel (Mpanel) is a 3/1 grid: xterm on the left and a rail of
-  // five identical metric cards on the right, with three copied chart cards
-  // underneath. Ours is a vertical stack with a shared-axis trend band.
-  ok('console is a vertical stack, not a side rail of cards', /\.csl-stack\s*\{[^}]*flex-direction:\s*column/.test(CSS)
-    && !/\.con-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 302px/.test(CSS));
-  ok('no leftover rail/card console classes in the markup',
-    !/class="con-side"|class="con-card"|class="con-tiles"|class="con-charts"/.test(cj));
-  ok('one shared trend band draws every metric on the same axis', /function trendBands\(/.test(cj)
-    && /SAMPLE_CAP/.test(cj) && /id="trend-bands"/.test(cj));
-  ok('metrics are compact rows with real limits, not repeated cards', /\.csl-row\s*\{/.test(CSS)
-    && (cj.match(/class="csl-row"/g) || []).length >= 5);
+  // Structure follows the JTG-style server workspace: a two-column console row
+  // (terminal + a rail of live metric tiles) with one rolling chart per
+  // resource underneath, and the power controls living in the section rail.
+  ok('console is terminal-left, metric-rail-right', /\.csl-cols\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 292px/.test(CSS)
+    && /class="csl-cols"/.test(cj) && /class="csl-stats"/.test(cj));
+  ok('the metric rail is one tile per real resource',
+    (cj.match(/class="csl-stat"/g) || []).length >= 5
+    && ['cpu', 'memory', 'disk', 'netin', 'netout'].every((k) => new RegExp(`data-metric="${k}"`).test(cj)));
+  ok('three separate charts sit under the terminal, one per resource',
+    /\.csl-charts\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/.test(CSS)
+    && ['ch-cpu-svg', 'ch-mem-svg', 'ch-net-svg'].every((id) => cj.includes(`id="${id}"`)));
+  ok('each chart draws its own rolling window, not three copies of one card',
+    /function chartBody\(values, color, max\)/.test(cj) && (cj.match(/chartBody\(live\.samples\./g) || []).length >= 3);
+  ok('the header odometer is a real status orb, not decoration',
+    /class="csl-orb"/.test(cj) && /\.csl-orb\.is-running\s*\{/.test(CSS));
+  ok('focus mode hides the rail and charts, not the terminal',
+    /\.csl-wrap\.is-focus \.csl-stats/.test(CSS) && /\.csl-wrap\.is-focus \.csl-charts/.test(CSS));
   ok('the band keeps a real gap for unmeasurable metrics instead of a flat zero',
     /not exposed on native runs/.test(cj));
-  ok('focus mode hides the telemetry panels, not the terminal', /\.csl-stack\.is-focus \.csl-panel/.test(CSS));
+  ok('no leftover shared-band or row-list classes in the markup',
+    !/class="csl-row"|class="csl-stack"|id="trend-bands"/.test(cj));
 }
 
 /* ------------- 3d. visual identity is ours -------------------------------- */
