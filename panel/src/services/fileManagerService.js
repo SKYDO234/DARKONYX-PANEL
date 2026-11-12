@@ -304,12 +304,20 @@ class FileManagerService {
       }
       return { success: true, size, filename, contentType };
     } catch (err) {
+      // If the host cannot reach the link we still know nothing about the file,
+      // so say so instead of inventing a size and a content type.
       let filename = 'downloaded_file';
       try {
         const u = new URL(url);
         filename = path.basename(u.pathname) || 'downloaded_file';
-      } catch (e) {}
-      return { success: true, size: 0, filename, contentType: 'unknown' };
+      } catch (e) { /* unparseable URL, keep the fallback name */ }
+      const reason = (err && (err.code === 'ECONNREFUSED' || /ENOTFOUND|EAI_AGAIN/.test(err.code || ''))
+        ? 'the host in the URL is not reachable from this machine'
+        : (err && err.message) || 'the request failed');
+      return {
+        success: false, size: 0, filename, contentType: 'unknown', measured: false,
+        error: `Could not inspect the link: ${reason}. You can still try the download.`
+      };
     }
   }
 
@@ -330,8 +338,11 @@ class FileManagerService {
       }
     }
 
-    const safeDest = path.join(destDir, filename);
-    const writer = fs.createWriteStream(safeDest);
+    // resolve the target inside the server root, never outside it
+    const safeDest = path.join(destDir, path.basename(filename));
+    if (!safeDest.startsWith(this.getServerRoot(serverId))) {
+      throw new Error('That file name would escape the server directory.');
+    }
 
     const response = await axios({
       url,
@@ -341,18 +352,26 @@ class FileManagerService {
       maxRedirects: 5
     });
 
-    return new Promise((resolve, reject) => {
-      response.data.pipe(writer);
-      writer.on('finish', async () => {
-        try {
-          const stat = await fs.promises.stat(safeDest);
-          resolve({ success: true, filename, size: stat.size, path: path.join(targetDir, filename) });
-        } catch (e) {
-          resolve({ success: true, filename, size: 0, path: path.join(targetDir, filename) });
-        }
+    // stream to a temp file first: a failed transfer must never leave a
+    // half-written file that looks like a successful download
+    const tmpDest = `${safeDest}.part`;
+    const writer = fs.createWriteStream(tmpDest);
+    try {
+      await new Promise((resolve, reject) => {
+        response.data.pipe(writer);
+        writer.on('finish', resolve);
+        writer.on('error', reject);
+        response.data.on('error', reject);
       });
-      writer.on('error', err => reject(err));
-    });
+      await fs.promises.rename(tmpDest, safeDest);
+    } catch (err) {
+      writer.destroy();
+      await fs.promises.unlink(tmpDest).catch(() => {});
+      throw new Error(`Download failed: ${err.message}`);
+    }
+
+    const stat = await fs.promises.stat(safeDest);
+    return { success: true, filename, size: stat.size, path: path.join(targetDir, filename) };
   }
 
   // Beautify / Code Formatter

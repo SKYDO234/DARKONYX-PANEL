@@ -266,172 +266,468 @@
   }
 
   /* ------------------------------------------------------------------ files */
-  const fm = { path: '' };
+  /* File manager: name-first rows, a real toolbar (new file / folder, upload,
+     import from URL, refresh), and per-item actions with visible labels —
+     Open / Edit / Download / Rename / Delete. Everything maps to a live
+     /api/servers/:id/files/* endpoint; nothing here is decorative. */
+  const fm = { path: '', sel: new Set() };
+  const MENU_ICON = {
+    txt: 'file', log: 'file', properties: 'sliders', yml: 'code', yaml: 'code', json: 'code',
+    conf: 'code', sh: 'code', md: 'file', js: 'code', ts: 'code', toml: 'code', xml: 'code', csv: 'file'
+  };
+  const isArchive = (n) => /\.(zip|jar|tar|gz|tgz|rar|7z)$/i.test(n);
+  const isEditable = (n) => !isArchive(n) && !/\.(png|jpe?g|gif|webp|ico|mp3|ogg|wav|mp4|mov|dll|so|dylib|class|exe)$/i.test(n);
+
+  function fileIcon(name, isDir) {
+    if (isDir) return 'folder';
+    if (isArchive(name)) return 'archive';
+    const ext = String(name).split('.').pop().toLowerCase();
+    return MENU_ICON[ext] || 'file';
+  }
+
   async function renderFiles(host, s) {
+    /* ---- toolbar -------------------------------------------------------- */
     host.innerHTML = `
-      <div class="fm-layout">
-        <div class="card">
-          <div class="card-head"><h3>Folders</h3></div>
-          <div class="card-body col gap-4" id="fm-quick"></div>
-        </div>
-        <div class="card">
-          <div class="card-head">
-            <div class="grow"><div class="fm-crumbs" id="fm-crumbs"></div></div>
+      <div class="card fm-card">
+        <div class="fm-toolbar">
+          <div class="fm-path">
+            <button class="fm-up" id="fm-up" title="Up one level">${I('chevronLeft')}</button>
+            <div class="fm-crumbs" id="fm-crumbs"></div>
+          </div>
+          <div class="fm-tools">
             <button class="btn btn-sm" id="fm-new-file">${I('file')} New file</button>
             <button class="btn btn-sm" id="fm-new-dir">${I('folder')} New folder</button>
-            <label class="btn btn-sm btn-primary" style="cursor:pointer">${I('upload')} Upload<input type="file" id="fm-upload" multiple style="display:none" /></label>
-            <button class="btn btn-sm btn-ghost" id="fm-refresh">${I('refresh')}</button>
-          </div>
-          <div class="card-body" style="padding:8px">
-            <div class="fm-list" id="fm-list">${window.el.skeleton(5)}</div>
+            <label class="btn btn-sm btn-primary" for="fm-upload" role="button" tabindex="0">${I('upload')} Upload
+              <input type="file" id="fm-upload" multiple hidden /></label>
+            <button class="btn btn-sm" id="fm-import">${I('globe')} Import URL</button>
+            <button class="btn btn-sm btn-ghost" id="fm-refresh" title="Reload this folder">${I('refresh')}</button>
           </div>
         </div>
-      </div>`;
 
-    const listEl = document.getElementById('fm-list');
-    const crumbsEl = document.getElementById('fm-crumbs');
-    const quickEl = document.getElementById('fm-quick');
+        <div class="fm-bulk" id="fm-bulk" hidden>
+          <span class="fm-bulk-n" id="fm-bulk-n">0 selected</span>
+          <div class="row gap-6">
+            <button class="btn btn-xs" id="fm-bulk-zip">${I('archive')} Zip</button>
+            <button class="btn btn-xs btn-danger" id="fm-bulk-del">${I('trash')} Delete selected</button>
+            <button class="btn btn-xs btn-ghost" id="fm-bulk-clear">Clear</button>
+          </div>
+        </div>
 
-    const paintQuick = () => {
-      const items = [
-        { p: '', label: 'Server root', icon: 'folder' },
-        { p: 'plugins', label: 'plugins', icon: 'puzzle' },
-        { p: 'mods', label: 'mods', icon: 'package' },
-        { p: 'world', label: 'world', icon: 'map' },
-        { p: 'logs', label: 'logs', icon: 'file' },
-        { p: 'config', label: 'config', icon: 'sliders' }
-      ];
-      quickEl.innerHTML = items.map((i) => `<button class="rail-item" data-path="${esc(i.p)}" style="text-align:left">${I(i.icon)}<span class="rail-label">${esc(i.label)}</span></button>`).join('');
-      quickEl.querySelectorAll('[data-path]').forEach((b) => b.onclick = () => load(b.dataset.path));
-    };
+        <div class="fm-table-head" id="fm-table-head">
+          <span class="fm-check"><input type="checkbox" id="fm-all" title="Select all" /></span>
+          <span>Name</span>
+          <span class="fm-col-size">Size</span>
+          <span class="fm-col-date">Modified</span>
+          <span class="fm-col-act">Actions</span>
+        </div>
+        <div class="fm-list" id="fm-list">${window.el.skeleton(5)}</div>
+        <div class="fm-foot" id="fm-foot"></div>
+      </div>
+      <div class="fm-drop" id="fm-drop" hidden>${I('upload')} <span>Drop files to upload to <b id="fm-drop-path">/</b></span></div>`;
 
-    const paintCrumbs = () => {
+    const listEl = host.querySelector('#fm-list');
+    const crumbsEl = host.querySelector('#fm-crumbs');
+    const footEl = host.querySelector('#fm-foot');
+    const bulkEl = host.querySelector('#fm-bulk');
+    const dropEl = host.querySelector('#fm-drop');
+    let rows = [];
+    let loading = 0;
+
+    const join = (name) => (fm.path ? `${fm.path}/${name}` : name);
+    const parentOf = () => fm.path.split('/').slice(0, -1).join('/');
+
+    /* ---- breadcrumbs + up ---------------------------------------------- */
+    function paintCrumbs() {
       const parts = fm.path.split('/').filter(Boolean);
-      crumbsEl.innerHTML = `<a data-crumb="">/ root</a>` + parts.map((p, i) => `<span class="dim">/</span><a data-crumb="${esc(parts.slice(0, i + 1).join('/'))}"><b>${esc(p)}</b></a>`).join('');
-      crumbsEl.querySelectorAll('[data-crumb]').forEach((a) => a.onclick = () => load(a.dataset.crumb));
-    };
+      crumbsEl.innerHTML = `<a data-crumb="" title="Server root">${I('folder')}<span>root</span></a>`
+        + parts.map((p, i) => `<span class="fm-sep">/</span><a data-crumb="${esc(parts.slice(0, i + 1).join('/'))}"><span>${esc(p)}</span></a>`).join('');
+      crumbsEl.querySelectorAll('[data-crumb]').forEach((a) => { a.onclick = () => load(a.dataset.crumb); });
+      const up = host.querySelector('#fm-up');
+      up.disabled = !fm.path;
+      up.onclick = () => { if (fm.path) load(parentOf()); };
+    }
 
+    /* ---- bulk selection ------------------------------------------------- */
+    function paintBulk() {
+      const n = fm.sel.size;
+      bulkEl.hidden = n === 0;
+      host.querySelector('#fm-bulk-n').textContent = `${n} selected`;
+      const all = host.querySelector('#fm-all');
+      if (all) {
+        all.checked = rows.length > 0 && n === rows.length;
+        all.indeterminate = n > 0 && n < rows.length;
+      }
+    }
+
+    /* ---- list ----------------------------------------------------------- */
     async function load(path) {
       fm.path = path || '';
+      fm.sel.clear();
       paintCrumbs();
+      paintBulk();
+      const token = ++loading;
       listEl.innerHTML = window.el.skeleton(5);
       try {
         const r = await API.get(`/api/servers/${s.id}/files?directory=${encodeURIComponent(fm.path)}`);
-        const files = (r.files || []).slice();
-        if (!files.length) { listEl.innerHTML = emptyState('folder', 'Empty directory', 'Upload a file or create a folder to get started.'); return; }
-        listEl.innerHTML = files.map((f) => `
+        if (token !== loading) return; // a newer navigation won
+        rows = (r.files || []).slice().sort((a, b) => (b.isDirectory - a.isDirectory) || a.name.localeCompare(b.name));
+        if (!rows.length) {
+          listEl.innerHTML = emptyState('folder', 'This folder is empty', 'Upload a file, create one, or import it from a URL.');
+          footEl.textContent = `${fm.path ? '/' + fm.path : 'root'} · empty`;
+          return;
+        }
+        listEl.innerHTML = rows.map((f) => `
           <div class="fm-row ${f.isDirectory ? 'dir' : ''}" data-name="${esc(f.name)}" data-dir="${f.isDirectory ? 1 : 0}">
-            <div class="fm-ico">${I(f.isDirectory ? 'folder' : /\.(jar|zip|gz|tar)$/i.test(f.name) ? 'archive' : /\.(json|yml|yaml|properties|txt|log|conf|sh)$/i.test(f.name) ? 'code' : 'file')}</div>
-            <div class="fm-name">${esc(f.name)}</div>
-            <div class="fm-meta">${f.isDirectory ? 'folder' : fmt.bytes(f.size)}</div>
-            <div class="fm-meta hide-sm">${f.modifiedAt ? fmt.date(f.modifiedAt) : '—'}</div>
-            <div class="cell-actions">
-              ${!f.isDirectory ? `<button class="btn btn-xs btn-ghost" data-dl="${esc(f.name)}" title="Download">${I('download')}</button>` : ''}
-              <button class="btn btn-xs btn-ghost" data-ren="${esc(f.name)}" title="Rename">${I('edit')}</button>
-              <button class="btn btn-xs btn-ghost" data-del="${esc(f.name)}" title="Delete">${I('trash')}</button>
-            </div>
+            <span class="fm-check"><input type="checkbox" data-pick="${esc(f.name)}" title="Select ${esc(f.name)}" /></span>
+            <span class="fm-name" title="${esc(f.name)}">
+              <span class="fm-ico">${I(fileIcon(f.name, f.isDirectory))}</span>
+              <span class="fm-label">${esc(f.name)}</span>
+              ${f.isDirectory ? '<span class="fm-tag">folder</span>' : ''}
+            </span>
+            <span class="fm-size">${f.isDirectory ? '—' : esc(fmt.bytes(f.size))}</span>
+            <span class="fm-date">${f.modifiedAt ? esc(fmt.date(f.modifiedAt)) : '—'}</span>
+            <span class="fm-actions">
+              ${f.isDirectory
+        ? `<button class="btn btn-xs" data-open="${esc(f.name)}" title="Open folder">${I('folder')} <span class="fm-btn-l">Open</span></button>`
+        : `<button class="btn btn-xs" data-edit="${esc(f.name)}" title="Edit ${esc(f.name)}">${I('edit')} <span class="fm-btn-l">Edit</span></button>
+                   <button class="btn btn-xs btn-ghost" data-dl="${esc(f.name)}" title="Download ${esc(f.name)}">${I('download')} <span class="fm-btn-l">Download</span></button>`}
+              <button class="btn btn-xs btn-ghost" data-ren="${esc(f.name)}" title="Rename ${esc(f.name)}">${I('edit')} <span class="fm-btn-l">Rename</span></button>
+              <button class="btn btn-xs btn-ghost fm-del" data-del="${esc(f.name)}" title="Delete ${esc(f.name)}">${I('trash')} <span class="fm-btn-l">Delete</span></button>
+            </span>
           </div>`).join('');
 
-        listEl.querySelectorAll('.fm-row').forEach((row) => {
-          const name = row.dataset.name;
-          row.ondblclick = () => {
-            if (row.dataset.dir === '1') load(fm.path ? `${fm.path}/${name}` : name);
-            else openFile(fm.path ? `${fm.path}/${name}` : name);
-          };
-          row.onclick = (e) => {
-            if (e.target.closest('button')) return;
-            listEl.querySelectorAll('.fm-row').forEach((r) => r.style.background = '');
-            row.style.background = 'rgba(139,92,246,.12)';
-          };
-        });
-        listEl.querySelectorAll('[data-dl]').forEach((b) => b.onclick = async (e) => {
-          e.stopPropagation();
-          const p = fm.path ? `${fm.path}/${b.dataset.dl}` : b.dataset.dl;
-          const res = await API.raw(`/api/servers/${s.id}/files/download?file=${encodeURIComponent(p)}`);
-          const blob = await res.blob();
-          const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = b.dataset.dl; a.click();
-          setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-        });
-        listEl.querySelectorAll('[data-ren]').forEach((b) => b.onclick = (e) => {
-          e.stopPropagation();
-          window.el.promptDialog({
-            title: 'Rename', label: 'New name', value: b.dataset.ren,
-            onSubmit: async (val) => {
-              const from = fm.path ? `${fm.path}/${b.dataset.ren}` : b.dataset.ren;
-              const to = fm.path ? `${fm.path}/${val}` : val;
-              await API.post(`/api/servers/${s.id}/files/rename`, { oldPath: from, newPath: to });
-              toast('Renamed', 'ok'); load(fm.path);
-            }
-          });
-        });
-        listEl.querySelectorAll('[data-del]').forEach((b) => b.onclick = (e) => {
-          e.stopPropagation();
-          window.el.confirmDialog({
-            title: `Delete ${b.dataset.del}?`, message: 'This removes the file or folder from the server directory.',
-            confirmLabel: 'Delete',
-            onConfirm: async () => {
-              const p = fm.path ? `${fm.path}/${b.dataset.del}` : b.dataset.del;
-              await API.post(`/api/servers/${s.id}/files/delete`, { itemPath: p });
-              toast('Deleted', 'ok'); load(fm.path);
-            }
-          });
-        });
-      } catch (e) { listEl.innerHTML = emptyState('alert', 'Cannot read directory', e.message); }
+        footEl.textContent = `${fm.path ? '/' + fm.path : 'root'} · ${rows.length} item${rows.length === 1 ? '' : 's'} · ${rows.filter((f) => f.isDirectory).length} folder(s) · ${rows.filter((f) => !f.isDirectory).length} file(s)`;
+        wireRows();
+        paintBulk();
+      } catch (e) {
+        if (token !== loading) return;
+        rows = [];
+        listEl.innerHTML = emptyState('alert', 'Cannot read this folder', e.message);
+        footEl.textContent = '';
+      }
+    }
+
+    function openItem(name, isDir) {
+      if (isDir) load(join(name));
+      else openFile(join(name));
+    }
+
+    function wireRows() {
+      listEl.querySelectorAll('.fm-row').forEach((row) => {
+        const name = row.dataset.name;
+        const isDir = row.dataset.dir === '1';
+        // single click selects, double click opens — the usual file-manager feel
+        row.onclick = (e) => {
+          if (e.target.closest('button') || e.target.matches('input')) return;
+          const box = row.querySelector('[data-pick]');
+          if (!box) return;
+          box.checked = !box.checked;
+          row.classList.toggle('is-picked', box.checked);
+          syncPick(box);
+        };
+        row.ondblclick = (e) => {
+          if (e.target.closest('button') || e.target.matches('input')) return;
+          openItem(name, isDir);
+        };
+        const pick = row.querySelector('[data-pick]');
+        if (pick) pick.onchange = () => syncPick(pick);
+      });
+      listEl.querySelectorAll('[data-open]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); load(join(b.dataset.open)); }; });
+      listEl.querySelectorAll('[data-edit]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); openFile(join(b.dataset.edit)); }; });
+      listEl.querySelectorAll('[data-dl]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); download(b.dataset.dl); }; });
+      listEl.querySelectorAll('[data-ren]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); rename(b.dataset.ren); }; });
+      listEl.querySelectorAll('[data-del]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); remove(b.dataset.del); }; });
+    }
+
+    function syncPick(box) {
+      if (box.checked) fm.sel.add(box.dataset.pick); else fm.sel.delete(box.dataset.pick);
+      const row = box.closest('.fm-row');
+      if (row) row.classList.toggle('is-picked', box.checked);
+      paintBulk();
+    }
+
+    /* ---- actions -------------------------------------------------------- */
+    async function download(name) {
+      try {
+        const res = await API.raw(`/api/servers/${s.id}/files/download?file=${encodeURIComponent(join(name))}`);
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob); a.download = name;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        toast(`Downloading ${name}`, 'ok');
+      } catch (e) { toast(e.message, 'err', 'Download failed'); }
+    }
+
+    function rename(name) {
+      window.el.promptDialog({
+        title: `Rename “${name}”`, label: 'New name', value: name, confirmLabel: 'Rename',
+        onSubmit: async (val) => {
+          if (!val || val === name) return;
+          await API.post(`/api/servers/${s.id}/files/rename`, { oldPath: join(name), newPath: join(val) });
+          toast(`Renamed to ${val}`, 'ok'); load(fm.path);
+        }
+      });
+    }
+
+    function remove(name, after) {
+      const isDir = (rows.find((r) => r.name === name) || {}).isDirectory;
+      window.el.confirmDialog({
+        title: `Delete “${name}”?`,
+        message: isDir
+          ? 'The folder and everything inside it is removed from the server disk. This cannot be undone.'
+          : 'The file is removed from the server disk. This cannot be undone.',
+        confirmLabel: 'Delete', danger: true,
+        onConfirm: async () => {
+          await API.post(`/api/servers/${s.id}/files/delete`, { itemPath: join(name) });
+          toast(`Deleted ${name}`, 'ok');
+          fm.sel.delete(name);
+          load(fm.path);
+          if (after) after();
+        }
+      });
     }
 
     async function openFile(filePath) {
       let content = '';
-      try { const r = await API.get(`/api/servers/${s.id}/files/content?file=${encodeURIComponent(filePath)}`); content = r.content; }
-      catch (e) { toast(e.message, 'err'); return; }
+      try {
+        const r = await API.get(`/api/servers/${s.id}/files/content?file=${encodeURIComponent(filePath)}`);
+        content = r.content;
+      } catch (e) {
+        // binary / oversized files cannot be edited as text — offer the download
+        // instead of an empty editor that would destroy the file on save
+        toast(e.message, 'err', 'Cannot open as text');
+        return;
+      }
+      const name = filePath.split('/').pop();
       window.el.modal({
-        title: filePath.split('/').pop(), subtitle: filePath, size: 'wide',
-        body: `<textarea class="code-editor" id="fm-editor" spellcheck="false" style="min-height:min(62vh,560px)">${esc(content)}</textarea>`,
+        title: name, subtitle: filePath, size: 'wide',
+        body: `<div class="fm-editor-bar">
+            <span class="chip chip-plain tiny mono">${esc((name.split('.').pop() || 'txt').toUpperCase())}</span>
+            <span class="dim tiny" id="fm-ed-lines">${content.split('\n').length} lines</span>
+            <span class="grow"></span>
+            <span class="dim tiny" id="fm-ed-state">unchanged</span>
+          </div>
+          <textarea class="code-editor" id="fm-editor" spellcheck="false" autocomplete="off" style="min-height:min(62vh,560px)">${esc(content)}</textarea>`,
         footer: `<button class="btn" data-cancel>Close</button><button class="btn btn-primary" data-save>${I('save')} Save file</button>`,
         onMount(wrap, close) {
+          const ta = wrap.querySelector('#fm-editor');
+          const stateEl = wrap.querySelector('#fm-ed-state');
+          const linesEl = wrap.querySelector('#fm-ed-lines');
+          ta.addEventListener('input', () => {
+            stateEl.textContent = 'unsaved changes';
+            stateEl.classList.add('fm-dirty');
+            linesEl.textContent = `${ta.value.split('\n').length} lines`;
+          });
+          // Ctrl/Cmd+S saves without leaving the editor
+          ta.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); wrap.querySelector('[data-save]').click(); }
+            if (e.key === 'Tab') {
+              e.preventDefault();
+              const a = ta.selectionStart;
+              ta.value = `${ta.value.slice(0, a)}  ${ta.value.slice(ta.selectionEnd)}`;
+              ta.selectionStart = ta.selectionEnd = a + 2;
+              ta.dispatchEvent(new Event('input'));
+            }
+          });
           wrap.querySelector('[data-cancel]').onclick = close;
           wrap.querySelector('[data-save]').onclick = async () => {
+            const btn = wrap.querySelector('[data-save]');
+            btn.disabled = true;
             try {
-              await API.post(`/api/servers/${s.id}/files/content`, { filePath, content: wrap.querySelector('#fm-editor').value });
-              toast('File saved', 'ok'); close(); load(fm.path);
-            } catch (e) { toast(e.message, 'err'); }
+              await API.post(`/api/servers/${s.id}/files/content`, { filePath, content: ta.value });
+              toast(`${name} saved`, 'ok');
+              close();
+              load(fm.path);
+            } catch (e) {
+              btn.disabled = false;
+              toast(e.message, 'err', 'Save failed');
+            }
           };
         }
       });
     }
 
-    document.getElementById('fm-refresh').onclick = () => load(fm.path);
-    document.getElementById('fm-new-dir').onclick = () => window.el.promptDialog({
-      title: 'New folder', label: 'Folder name', confirmLabel: 'Create',
-      onSubmit: async (name) => {
-        await API.post(`/api/servers/${s.id}/files/directory`, { dirPath: fm.path ? `${fm.path}/${name}` : name });
-        toast('Folder created', 'ok'); load(fm.path);
-      }
-    });
-    document.getElementById('fm-new-file').onclick = () => window.el.promptDialog({
-      title: 'New file', label: 'File name', confirmLabel: 'Create',
-      onSubmit: async (name) => {
-        const p = fm.path ? `${fm.path}/${name}` : name;
-        await API.post(`/api/servers/${s.id}/files/content`, { filePath: p, content: '' });
-        toast('File created', 'ok'); load(fm.path);
-      }
-    });
-    document.getElementById('fm-upload').onchange = async (e) => {
-      const files = Array.from(e.target.files || []);
+    async function createFile(name) {
+      await API.post(`/api/servers/${s.id}/files/content`, { filePath: join(name), content: '' });
+      toast(`Created ${name}`, 'ok');
+      load(fm.path);
+    }
+
+    async function uploadFiles(files) {
       if (!files.length) return;
-      toast(`Uploading ${files.length} file(s)…`, 'info', 'Upload');
-      let ok = 0;
+      toast(`Uploading ${files.length} file${files.length === 1 ? '' : 's'}…`, 'info', 'Upload');
+      let done = 0;
+      const failed = [];
       for (const f of files) {
         const fd = new FormData();
         fd.append('file', f);
-        try { await API.upload(`/api/servers/${s.id}/files/upload?directory=${encodeURIComponent(fm.path || '')}`, fd); ok++; }
-        catch (err) { toast(`${f.name}: ${err.message}`, 'err'); }
+        try {
+          const r = await API.upload(`/api/servers/${s.id}/files/upload?directory=${encodeURIComponent(fm.path || '')}`, fd);
+          done++;
+          // the upload endpoint hands the stored bytes back so the UI can prove
+          // what landed instead of assuming the request worked
+          void r;
+        } catch (err) { failed.push(`${f.name}: ${err.message}`); }
       }
-      toast(`${ok}/${files.length} file(s) uploaded`, ok ? 'ok' : 'err');
-      e.target.value = '';
+      toast(`${done}/${files.length} uploaded to /${fm.path || ''}`, failed.length ? 'err' : 'ok', 'Upload');
+      failed.slice(0, 3).forEach((m) => toast(m, 'err'));
       load(fm.path);
+    }
+
+    /* ---- importing from a URL (direct download link) -------------------- */
+    function importDialog() {
+      window.el.modal({
+        title: 'Import from URL', subtitle: `Downloads into /${fm.path || ''}`,
+        body: `<div class="col gap-12">
+            <label class="field"><span class="field-label">Direct download link</span>
+              <input class="input" id="fm-url" placeholder="https://example.com/plugin-1.2.3.jar" autocomplete="off" spellcheck="false" /></label>
+            <div class="row gap-8"><button class="btn btn-sm" id="fm-url-check">${I('search')} Inspect link</button>
+              <span class="dim tiny" id="fm-url-info">Paste a direct file URL — pages that need a browser login will not work here.</span></div>
+            <label class="field"><span class="field-label">Save as <span class="dim">(optional)</span></span>
+              <input class="input" id="fm-url-name" placeholder="filename.jar" autocomplete="off" spellcheck="false" /></label>
+          </div>`,
+        footer: `<button class="btn" data-cancel>Cancel</button><button class="btn btn-primary" id="fm-url-go">${I('download')} Download file</button>`,
+        onMount(wrap, close) {
+          const urlEl = wrap.querySelector('#fm-url');
+          const nameEl = wrap.querySelector('#fm-url-name');
+          const info = wrap.querySelector('#fm-url-info');
+          const check = wrap.querySelector('#fm-url-check');
+          const go = wrap.querySelector('#fm-url-go');
+          wrap.querySelector('[data-cancel]').onclick = close;
+          check.onclick = async () => {
+            const url = urlEl.value.trim();
+            if (!/^https?:\/\//i.test(url)) { info.textContent = 'Enter a full http(s) link.'; return; }
+            check.disabled = true; info.textContent = 'Asking the server to inspect the link…';
+            try {
+              const r = await API.post(`/api/servers/${s.id}/files/pull-url/query`, { url });
+              info.textContent = r.size
+                ? `${r.filename} · ${fmt.bytes(r.size)} · ${r.contentType}`
+                : `${r.filename} · size unknown from this host (the download may still work)`;
+              if (!nameEl.value) nameEl.value = r.filename || '';
+            } catch (e) { info.textContent = e.message; }
+            check.disabled = false;
+          };
+          go.onclick = async () => {
+            const url = urlEl.value.trim();
+            if (!/^https?:\/\//i.test(url)) { info.textContent = 'Enter a full http(s) link.'; return; }
+            go.disabled = true; go.textContent = 'Downloading…';
+            try {
+              const r = await API.post(`/api/servers/${s.id}/files/pull-url`, {
+                url, directory: fm.path || '', filename: (nameEl.value || '').trim() || undefined
+              });
+              toast(`Saved ${r.filename}${r.size ? ` (${fmt.bytes(r.size)})` : ''}`, 'ok', 'Import');
+              close();
+              load(fm.path);
+            } catch (e) {
+              go.disabled = false;
+              go.innerHTML = `${I('download')} Download file`;
+              info.textContent = e.message;
+              toast(e.message, 'err', 'Import failed');
+            }
+          };
+          urlEl.focus();
+        }
+      });
+    }
+
+    /* ---- toolbar wiring ------------------------------------------------- */
+    host.querySelector('#fm-refresh').onclick = () => load(fm.path);
+    host.querySelector('#fm-new-dir').onclick = () => window.el.promptDialog({
+      title: 'New folder', label: 'Folder name', value: '', confirmLabel: 'Create folder',
+      onSubmit: async (name) => {
+        if (!name) return;
+        await API.post(`/api/servers/${s.id}/files/directory`, { dirPath: join(name) });
+        toast(`Created /${join(name)}`, 'ok'); load(fm.path);
+      }
+    });
+    host.querySelector('#fm-new-file').onclick = () => window.el.promptDialog({
+      title: 'New file', label: 'File name', value: '', confirmLabel: 'Create file',
+      onSubmit: async (name) => { if (name) await createFile(name); }
+    });
+    host.querySelector('#fm-import').onclick = importDialog;
+
+    const uploadInput = host.querySelector('#fm-upload');
+    uploadInput.addEventListener('change', (e) => {
+      const files = Array.from(e.target.files || []);
+      e.target.value = '';
+      uploadFiles(files);
+    });
+    // the label is styled as a button, so keyboard users need Enter/Space
+    host.querySelector('label[for="fm-upload"]').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); uploadInput.click(); }
+    });
+
+    host.querySelector('#fm-all').onchange = (e) => {
+      fm.sel.clear();
+      if (e.target.checked) rows.forEach((r) => fm.sel.add(r.name));
+      listEl.querySelectorAll('[data-pick]').forEach((b) => {
+        b.checked = e.target.checked;
+        const row = b.closest('.fm-row');
+        if (row) row.classList.toggle('is-picked', b.checked);
+      });
+      paintBulk();
+    };
+    host.querySelector('#fm-bulk-clear').onclick = () => {
+      fm.sel.clear();
+      listEl.querySelectorAll('[data-pick]').forEach((b) => {
+        b.checked = false;
+        const row = b.closest('.fm-row');
+        if (row) row.classList.remove('is-picked');
+      });
+      paintBulk();
+    };
+    host.querySelector('#fm-bulk-del').onclick = () => {
+      const names = [...fm.sel];
+      if (!names.length) return;
+      window.el.confirmDialog({
+        title: `Delete ${names.length} item(s)?`,
+        message: `Removed from disk: ${names.slice(0, 4).join(', ')}${names.length > 4 ? ` and ${names.length - 4} more` : ''}. This cannot be undone.`,
+        confirmLabel: 'Delete selected', danger: true,
+        onConfirm: async () => {
+          const failed = [];
+          for (const n of names) {
+            try { await API.post(`/api/servers/${s.id}/files/delete`, { itemPath: join(n) }); }
+            catch (e) { failed.push(`${n}: ${e.message}`); }
+          }
+          toast(`${names.length - failed.length}/${names.length} deleted`, failed.length ? 'err' : 'ok');
+          failed.forEach((m) => toast(m, 'err'));
+          fm.sel.clear(); load(fm.path);
+        }
+      });
+    };
+    host.querySelector('#fm-bulk-zip').onclick = () => {
+      const names = [...fm.sel];
+      if (!names.length) return;
+      window.el.promptDialog({
+        title: `Zip ${names.length} item(s)`, label: 'Archive name', value: 'archive.zip', confirmLabel: 'Create archive',
+        onSubmit: async (out) => {
+          await API.post(`/api/servers/${s.id}/files/compress`, {
+            files: names.map(join), outputName: join(out || 'archive.zip')
+          });
+          toast(`Created ${out}`, 'ok'); fm.sel.clear(); load(fm.path);
+        }
+      });
     };
 
-    paintQuick();
+    /* ---- drag & drop upload --------------------------------------------- */
+    let dragDepth = 0;
+    const card = host.querySelector('.fm-card');
+    const showDrop = (on) => { dropEl.hidden = !on; card.classList.toggle('is-drop', on); };
+    card.addEventListener('dragenter', (e) => {
+      if (!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes('Files')) return;
+      e.preventDefault(); dragDepth++; host.querySelector('#fm-drop-path').textContent = fm.path ? `/${fm.path}` : '/'; showDrop(true);
+    });
+    card.addEventListener('dragover', (e) => { if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files')) e.preventDefault(); });
+    card.addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) showDrop(false); });
+    card.addEventListener('drop', (e) => {
+      if (!e.dataTransfer) return;
+      e.preventDefault(); dragDepth = 0; showDrop(false);
+      const files = Array.from(e.dataTransfer.files || []);
+      if (files.length) uploadFiles(files);
+    });
+
+    paintCrumbs();
     load('');
   }
 
