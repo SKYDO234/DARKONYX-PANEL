@@ -156,9 +156,10 @@ Available suites:
 | `npm run test:api` | 155 endpoint checks across 27 groups |
 | `npm run test:data` | 31 checks that no telemetry is fabricated (CPU, RAM, disk, network, Docker, DB, logs) |
 | `npm run test:layout` | 24 checks on overlays, z-index, click targets, server-workspace chrome and design-system coverage |
-| `npm run test:ui` | 28 checks driving the real SPA in jsdom — login, navigation, all 28 routes, node panels, bulk actions |
+| `npm run test:ui` | 28 checks driving the real SPA in jsdom — login, navigation, all routes, node panels, bulk actions |
 | `npm run test:clicks` | clicks every control on all 28 routes; fails on any dead button |
 | `npm run test:page` | loads the page over HTTP and executes the real `<script src>` tags, then clicks through the sidebar and drives the console |
+| `npm run test:files` | 39 checks driving the file manager: visible names/sizes/dates, labelled Open/Edit/Download/Rename/Delete, editor save to disk, new file/folder, upload bytes, import-from-URL, bulk select and folder navigation |
 | `npm run test:branding` | 34 checks that a chosen wallpaper, blur and veil reach the page (login included), the branding studio previews live, and the server marketplace reads real files from disk |
 
 Asset URLs are content-hashed and the running page checks `/api/build`, so a

@@ -464,6 +464,8 @@ html[data-theme='light'] .topbar { background: linear-gradient(180deg, rgba(255,
    Forms
    ========================================================================== */
 .field { display: flex; flex-direction: column; gap: 7px; }
+.field-label { font-size: 11.5px; font-weight: 600; color: var(--text-2); letter-spacing: .02em; }
+.gap-12 { gap: 12px; }
 .field > label { font-size: 11.5px; font-weight: 600; color: var(--text-2); letter-spacing: .02em; }
 .field .hint { font-size: 11px; color: var(--text-3); }
 .input, .select, .textarea {
@@ -771,22 +773,106 @@ html[data-theme='light'] .menu { background: #fff; }
    File manager
    ========================================================================== */
 .fm-layout { display: grid; grid-template-columns: 250px 1fr; gap: 14px; align-items: start; }
-.fm-list { display: flex; flex-direction: column; }
+.fm-card { position: relative; overflow: hidden; }
+.fm-card.is-drop { border-color: rgba(139, 92, 246, .6); box-shadow: 0 0 0 2px rgba(139, 92, 246, .22) inset; }
+
+/* --- toolbar ------------------------------------------------------------ */
+.fm-toolbar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: space-between;
+  padding: 12px 14px; border-bottom: 1px solid var(--line);
+}
+.fm-path { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 240px; }
+.fm-up {
+  width: 30px; height: 30px; flex: 0 0 30px; display: grid; place-items: center; cursor: pointer;
+  border-radius: 9px; border: 1px solid var(--line-strong); background: rgba(255, 255, 255, .04); color: var(--text-2);
+}
+.fm-up svg { width: 15px; height: 15px; }
+.fm-up:hover:not(:disabled) { color: var(--text); border-color: var(--line-strong); background: rgba(255, 255, 255, .08); }
+.fm-up:disabled { opacity: .3; cursor: default; }
+.fm-crumbs {
+  display: flex; align-items: center; gap: 2px; flex-wrap: wrap; min-width: 0;
+  font-family: var(--mono); font-size: 11.6px;
+}
+.fm-crumbs a {
+  display: inline-flex; align-items: center; gap: 5px; max-width: 22ch;
+  padding: 4px 7px; border-radius: 7px; color: var(--text-2); cursor: pointer; overflow: hidden;
+}
+.fm-crumbs a span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fm-crumbs a svg { width: 13px; height: 13px; flex: 0 0 13px; opacity: .7; }
+.fm-crumbs a:hover { background: rgba(255, 255, 255, .07); color: var(--text); }
+.fm-crumbs a:last-child { color: var(--text); font-weight: 600; }
+.fm-sep { color: var(--text-3); opacity: .6; }
+.fm-tools { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+
+/* --- bulk bar ----------------------------------------------------------- */
+.fm-bulk {
+  display: flex; align-items: center; gap: 12px; justify-content: space-between; flex-wrap: wrap;
+  padding: 8px 14px; border-bottom: 1px solid var(--line);
+  background: linear-gradient(90deg, rgba(139, 92, 246, .14), rgba(139, 92, 246, .02));
+}
+.fm-bulk-n { font-size: 11.8px; font-weight: 650; color: #d6ccff; letter-spacing: .01em; }
+.gap-6 { gap: 6px; }
+
+/* --- table head + rows -------------------------------------------------- */
+.fm-table-head, .fm-row {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 86px 124px max-content;
+  align-items: center; gap: 10px; padding: 0 14px;
+}
+.fm-table-head {
+  height: 32px; font-size: 9.6px; letter-spacing: .14em; text-transform: uppercase; font-weight: 700;
+  color: var(--text-3); border-bottom: 1px solid var(--line); background: rgba(255, 255, 255, .02);
+}
+.fm-table-head .fm-col-act { text-align: right; }
+.fm-check { display: grid; place-items: center; }
+.fm-check input { width: 14px; height: 14px; accent-color: #8b5cf6; cursor: pointer; }
+.fm-list { display: flex; flex-direction: column; padding: 6px; }
 .fm-row {
-  display: grid; grid-template-columns: 26px 1fr 110px 150px 130px; align-items: center; gap: 10px;
-  padding: 8px 12px; border-radius: 9px; font-size: 12.6px; cursor: pointer;
+  min-height: 42px; padding: 6px 8px; border-radius: 9px; font-size: 12.6px; cursor: pointer;
   border: 1px solid transparent; transition: background .14s, border-color .14s;
 }
 .fm-row:hover { background: rgba(255, 255, 255, .045); border-color: var(--line); }
-.fm-row.dir .fm-ico { color: var(--onyx); }
-.fm-ico { display: grid; place-items: center; color: var(--text-3); }
-.fm-ico svg { width: 16px; height: 16px; }
-.fm-row .fm-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fm-row .fm-meta { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
-.fm-crumbs { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-family: var(--mono); font-size: 11.8px; }
-.fm-crumbs a { color: var(--text-2); padding: 3px 7px; border-radius: 7px; cursor: pointer; }
-.fm-crumbs a:hover { background: rgba(255, 255, 255, .07); color: var(--text); }
-.fm-crumbs b { color: var(--text); }
+.fm-row.is-picked { background: rgba(139, 92, 246, .14); border-color: rgba(139, 92, 246, .3); }
+.fm-name { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.fm-ico { display: grid; place-items: center; color: var(--text-3); flex: 0 0 17px; }
+.fm-ico svg { width: 17px; height: 17px; }
+.fm-row.dir .fm-ico { color: #c4b5fd; }
+.fm-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fm-tag {
+  flex: 0 0 auto; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; font-weight: 700;
+  padding: 1px 6px; border-radius: 999px; color: var(--text-3); border: 1px solid var(--line);
+}
+.fm-size, .fm-date {
+  font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.fm-actions { display: flex; align-items: center; gap: 4px; justify-content: flex-end; }
+.fm-actions .btn { flex: 0 0 auto; gap: 5px; }
+/* the labels are what makes Edit / Rename / Delete discoverable; they only
+   collapse to bare icons when there is genuinely no room */
+@media (max-width: 1360px) { .fm-btn-l { display: none; } }
+@media (max-width: 1360px) { .fm-actions .btn { padding: 0 8px; } }
+.fm-del:hover { color: #fda4af; background: var(--danger-soft, rgba(251, 113, 133, .12)); }
+.fm-foot {
+  padding: 9px 14px; border-top: 1px solid var(--line); font-size: 11px;
+  color: var(--text-3); font-family: var(--mono);
+}
+
+/* --- drop overlay + editor chrome --------------------------------------- */
+.fm-drop {
+  position: absolute; inset: 8px; z-index: 5; display: grid; place-items: center; gap: 8px;
+  border: 2px dashed rgba(139, 92, 246, .55); border-radius: 14px;
+  background: rgba(10, 8, 22, .82); backdrop-filter: blur(6px);
+  color: #e9e2ff; font-size: 13px; font-weight: 600; pointer-events: none;
+}
+.fm-drop[hidden] { display: none; }
+.fm-drop svg { width: 26px; height: 26px; opacity: .85; }
+.fm-editor-bar {
+  display: flex; align-items: center; gap: 10px; padding: 0 2px 9px;
+  border-bottom: 1px solid var(--line); margin-bottom: 10px;
+}
+.fm-dirty { color: #fcd34d; }
+
 .code-editor {
   width: 100%; min-height: 420px; border-radius: 0; border: 0; resize: vertical;
   background: #06060c; color: #d7d8e6; font-family: var(--mono); font-size: 12.4px;
@@ -943,8 +1029,12 @@ html[data-theme='light'] .menu { background: #fff; }
   .fm-layout { grid-template-columns: 1fr; }
   .two-col, .three-col { grid-template-columns: 1fr; }
   .page-head h1 { font-size: 22px; }
-  .fm-row { grid-template-columns: 24px 1fr 92px; }
-  .fm-row .fm-meta.hide-sm { display: none; }
+  /* name stays full-width; size/date give way so a long filename is never cut */
+  .fm-table-head, .fm-row { grid-template-columns: 27px minmax(0, 1fr) max-content; }
+  .fm-table-head .fm-col-size, .fm-table-head .fm-col-date,
+  .fm-row .fm-size, .fm-row .fm-date { display: none; }
+  .fm-tools { flex: 1 1 100%; justify-content: flex-start; }
+  .fm-toolbar { padding: 11px 12px; }
   .srv-specs { grid-template-columns: repeat(3, 1fr); }
   .clock-chip { display: none; }
 }
@@ -1733,4 +1823,12 @@ html[data-theme='light'] .srv-tabs .tab.active { background: linear-gradient(180
 @media (max-width: 720px) {
   .srv-head { position: static; }
   .srv-live { display: grid; grid-template-columns: 1fr 1fr; }
+}
+
+/* ---------- file manager: small screens ---------- */
+@media (max-width: 560px) {
+  .fm-tools .btn { flex: 1 1 auto; justify-content: center; }
+  .fm-actions .btn { padding: 0 7px; }
+  .fm-table-head, .fm-row { grid-template-columns: 25px minmax(0, 1fr) max-content; }
+  .fm-tag { display: none; }
 }

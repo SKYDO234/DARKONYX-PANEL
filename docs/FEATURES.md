@@ -71,6 +71,17 @@ counted from `panel/src/routes` + `panel/src/api`.
 
 ## 4. File manager  [24 endpoints]
 
+- Name-first table: every row shows icon, full name, size and modified date,
+  with labelled **Open / Edit / Download / Rename / Delete** actions
+- Toolbar: New file, New folder, Upload (button, keyboard accessible, or drag
+  and drop onto the list), **Import URL** (inspect a direct link first, then
+  download), refresh; breadcrumbs plus a working up button
+- **Import URL** streams to a `.part` file and only renames on success, so a
+  failed transfer never leaves a half-written file behind
+- Multi-select with select-all, bulk delete and bulk zip
+- Text editor with line count, unsaved-changes indicator, Tab indent and
+  Ctrl/Cmd+S; binary or oversized files are refused instead of being opened
+  empty (an empty editor would truncate them on save)
 - Browse, read and write files, create directories
 - Upload (multipart) and download
 - Rename, copy, delete, **trash** (move / restore / empty)
