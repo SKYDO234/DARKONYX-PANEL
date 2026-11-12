@@ -182,6 +182,29 @@ console.log('\n--- console layout identity ---');
   ok('focus mode hides the telemetry panels, not the terminal', /\.csl-stack\.is-focus \.csl-panel/.test(CSS));
 }
 
+/* ------------- 3d. visual identity is ours -------------------------------- */
+console.log('\n--- visual identity ---');
+{
+  const core = fs.readFileSync(PATH.join(PANEL, 'public/js/core.js'), 'utf8');
+  const authJs = fs.readFileSync(PATH.join(PANEL, 'public/js/auth.js'), 'utf8');
+  const allJs = JS_FILES.map((f) => fs.readFileSync(PATH.join(PANEL, 'public/js', f), 'utf8')).join('\n');
+
+  // the panel used to be violet-on-near-black glass; that is the look of the
+  // tool we must not resemble, so assert it is gone
+  const violet = [/139,\s*92,\s*246/, /#8b5cf6/i, /#a78bfa/i, /#c4b5fd/i, /#7c3aed/i, /#6366f1/i];
+  ok('no violet glass accent colours remain', violet.every((re) => !re.test(CSS) && !re.test(allJs)));
+  ok('primary accent is the ember token', /--onyx:\s*#e8a33d/.test(CSS));
+
+  ok('shell is a compact dock + command bar', /class="rail-logo"/.test(core) && /class="cmdbar"/.test(core));
+  ok('the old wordmark sidebar is gone', !/class="brand"/.test(core) && !/rail-brand/.test(core));
+  ok('surfaces are flat panels, not gradient glass', /--panel:\s*#14120f/.test(CSS)
+    && /\.card \{[\s\S]{0,220}box-shadow:\s*none/.test(CSS));
+  ok('ambient background is a grid + single warm bloom', /\.ambient::before[\s\S]{0,200}linear-gradient\(rgba\(255, 240, 225/.test(CSS));
+  ok('sign-in is one centred card, not a marketing split screen',
+    /class="auth-panel"/.test(authJs) && !/auth-visual|auth-headline/.test(authJs));
+  ok('the product mark is our shard logo, not a hexagon badge', /mark: '<path d="M4 6\.4h9\.2L16 9H4z"/.test(fs.readFileSync(PATH.join(PANEL, 'public/js/icons.js'), 'utf8')));
+}
+
 /* ------------------------------- 4. every script the page loads actually exists */
 console.log('\n--- asset wiring ---');
 {

@@ -41,7 +41,7 @@
           <div class="stat-top">${I('cpu')} CPU load</div>
           <div class="stat-value">${Math.round(sys.cpu.percent)}<small>%</small></div>
           <div class="stat-foot"><span>${esc(sys.cpu.cores)} cores · load ${sys.cpu.load_avg.map((x) => x.toFixed(2)).join(' / ')}</span></div>
-          <div class="mt-14">${sparkline(history.cpu, { color: '#8b5cf6', height: 40 })}</div>
+          <div class="mt-14">${sparkline(history.cpu, { color: '#e8a33d', height: 40 })}</div>
         </div></div>
         <div class="span-3"><div class="stat">
           <div class="stat-top">${I('memory')} Memory</div>
@@ -631,7 +631,7 @@
           <tbody>${allocs.map((a) => `<tr>
             <td class="mono">${esc(a.ip)}:${esc(a.port)}</td>
             <td>${esc(a.node_name || '—')}</td>
-            <td>${a.server_name ? `<a href="#/server/${a.server_id}/console" style="color:#c4b5fd">${esc(a.server_name)}</a>` : '<span class="dim">—</span>'}</td>
+            <td>${a.server_name ? `<a href="#/server/${a.server_id}/console" style="color:#fad6a5">${esc(a.server_name)}</a>` : '<span class="dim">—</span>'}</td>
             <td>${a.assigned ? '<span class="chip chip-onyx">Assigned</span>' : '<span class="chip chip-live">Free</span>'}</td>
           </tr>`).join('')}</tbody></table></div>`
           : emptyState('globe', 'No allocations', 'Create port allocations on a node to assign them to servers.');
