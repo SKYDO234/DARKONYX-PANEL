@@ -43,37 +43,19 @@
       const isRegister = this.mode === 'register';
 
       app.innerHTML = `
-      <div class="auth-wrap">
-        <div class="auth-visual">
-          <div class="auth-aurora"></div>
-          <div class="auth-rings"></div>
-          <div class="row gap-14">
-            <div class="brand-mark" style="width:44px;height:44px;flex-basis:44px">
-              <svg viewBox="0 0 24 24" fill="none"><path d="M12 2.6 20.5 7v10L12 21.4 3.5 17V7L12 2.6Z" stroke="#c4b5fd" stroke-width="1.4"/><path d="M12 7.4 16.6 10v4.6L12 17.2 7.4 14.6V10L12 7.4Z" fill="#8b5cf6" fill-opacity=".85"/></svg>
+      <div class="auth-wrap auth-solo-wrap">
+        <div class="auth-vignette" aria-hidden="true"></div>
+
+        <div class="auth-panel">
+          <div class="auth-panel-head">
+            <div class="brand-mark" style="width:38px;height:38px;flex-basis:38px">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M4 6.4h9.2L16 9H4z" fill="#f0b866"/><path d="M4 11h12.4L19 13.6H4z" fill="#f0b866" opacity=".72"/><path d="M4 15.6h7.4L14 18.2H4z" fill="#f0b866" opacity=".45"/></svg>
             </div>
-            <div class="brand-text"><strong style="font-size:15px;letter-spacing:.16em">DARKONYX</strong><span>panel</span></div>
+            <div class="brand-text"><strong style="font-size:14px;letter-spacing:.18em">DARKONYX</strong><span>control</span></div>
+            <span class="auth-badge">self-hosted</span>
           </div>
 
-          <div>
-            <h1 class="auth-headline">Command your<br/><em>Minecraft world</em><br/>from one obsidian deck.</h1>
-            <p class="auth-tagline">DARKONYX PANEL is a self-hosted controller for Minecraft (Paper, Fabric, Forge, Purpur, Vanilla), Node.js and Python servers — power controls, live console, file manager, backups, schedules, plugins and telemetry.</p>
-            <div class="auth-feats">
-              ${FEATURES.map((f) => `<div class="auth-feat"><div class="afi">${I(f.icon)}</div><span>${esc(f.text)}</span></div>`).join('')}
-            </div>
-          </div>
-
-          <div class="row gap-14 tiny dim" style="letter-spacing:.14em;text-transform:uppercase;font-weight:600">
-            <span>${I('shield')}</span><span>Self-hosted</span><span>·</span><span>No telemetry</span><span>·</span><span>MIT</span>
-          </div>
-        </div>
-
-        <div class="auth-form-side">
-          <div class="auth-card">
-            <div class="auth-logo">
-              <div class="brand-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 2.6 20.5 7v10L12 21.4 3.5 17V7L12 2.6Z" stroke="#c4b5fd" stroke-width="1.4"/><path d="M12 7.4 16.6 10v4.6L12 17.2 7.4 14.6V10L12 7.4Z" fill="#8b5cf6" fill-opacity=".85"/></svg></div>
-              <div class="brand-text"><strong>DARKONYX</strong><span>panel</span></div>
-            </div>
-
+        <div class="auth-body">
             <h2>${isRegister ? 'Create your account' : this.pending2fa ? 'Two-factor check' : 'Welcome back'}</h2>
             <p class="auth-sub">${isRegister ? 'Register to deploy and control your own game servers.' : this.pending2fa ? 'Enter the 6-digit code from your authenticator app.' : 'Sign in to manage your servers and infrastructure.'}</p>
 
@@ -114,8 +96,8 @@
                 : `Need an account? <a id="auth-toggle">Register</a>`}
             </div>
 
-            <div class="card card-pad mt-22" style="border-style:dashed">
-              <div class="row gap-8 tiny dim"><span>${I('info')}</span><span>Fresh install? Default credentials are <b class="mono" style="color:var(--text-2)">admin / admin</b> — change them immediately.</span></div>
+            <div class="auth-hint">
+              ${I('info')}<span>Fresh install? Default credentials are <b class="mono">admin / admin</b> — change them immediately.</span>
             </div>
           </div>
         </div>

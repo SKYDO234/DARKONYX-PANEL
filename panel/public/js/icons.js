@@ -11,6 +11,8 @@
     server: '<rect x="3" y="4" width="18" height="7" rx="2.4"/><rect x="3" y="13" width="18" height="7" rx="2.4"/><path d="M7 7.5h.01M7 16.5h.01"/>',
     layers: '<path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/>',
     box: '<path d="M12 2.8 20.4 7v10L12 21.2 3.6 17V7L12 2.8Z"/><path d="M3.6 7 12 11.4 20.4 7"/><path d="M12 11.4V21"/>',
+    // mark: three stacked shards (reads as a stacked server, not a hexagon logo)
+    mark: '<path d="M4 6.4h9.2L16 9H4z" fill="currentColor" stroke="none"/><path d="M4 11h12.4L19 13.6H4z" fill="currentColor" stroke="none" opacity=".72"/><path d="M4 15.6h7.4L14 18.2H4z" fill="currentColor" stroke="none" opacity=".45"/>',
     cpu: '<rect x="6.5" y="6.5" width="11" height="11" rx="2.4"/><path d="M10 3v3M14 3v3M10 18v3M14 18v3M3 10h3M3 14h3M18 10h3M18 14h3"/>',
     memory: '<rect x="2.5" y="7" width="19" height="9" rx="2"/><path d="M6 16v2M10 16v2M14 16v2M18 16v2M7 11h.01M11 11h.01M15 11h.01"/>',
     disk: '<circle cx="12" cy="12" r="8.6"/><circle cx="12" cy="12" r="2.4"/><path d="M15.4 15.4 18 18"/>',

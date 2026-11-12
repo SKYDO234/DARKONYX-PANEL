@@ -137,7 +137,7 @@
 
   function trendBands() {
     const bands = [
-      { key: 'cpu', label: 'CPU', color: '#a78bfa', unit: '%', value: 'ch-cpu' },
+      { key: 'cpu', label: 'CPU', color: '#f0b866', unit: '%', value: 'ch-cpu' },
       { key: 'memory', label: 'RAM', color: '#34d399', unit: 'MB', value: 'ch-mem' },
       { key: 'disk', label: 'Disk', color: '#fbbf24', unit: 'MB', value: 'ch-disk' },
       { key: 'net', label: 'Net', color: '#38bdf8', unit: 'B/s', value: 'ch-net' }
@@ -261,7 +261,7 @@
           </div>
           <div class="csl-band" id="ch-box">${trendBands()}</div>
           <div class="csl-legend">
-            <span><i style="background:#a78bfa"></i>CPU <b id="ch-cpu">—</b></span>
+            <span><i style="background:#f0b866"></i>CPU <b id="ch-cpu">—</b></span>
             <span><i style="background:#34d399"></i>RAM <b id="ch-mem">—</b></span>
             <span><i style="background:#fbbf24"></i>Disk <b id="ch-disk">—</b></span>
             <span><i style="background:#38bdf8"></i>Net <b id="ch-net">—</b></span>

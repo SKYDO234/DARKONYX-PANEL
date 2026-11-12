@@ -50,7 +50,11 @@ counted from `panel/src/routes` + `panel/src/api`.
     counters or the process tree in `/proc`; disk is the real size of the server
     directory. Anything the host cannot measure prints "not measured" with the
     reason instead of a zero (`GET /api/servers/:id/stats`)
-    - **Console layout** — a vertical stack: terminal, then a single **trend band**
+    - **Visual language** — graphite-and-ember operating console: flat hairline
+    panels, a fine engineering grid behind a single warm bloom, a compact icon
+    dock, a real command bar (⌘K) in the top bar, and a single centred sign-in
+    card. Deliberately not the violet-on-black glass dashboard look
+  - **Console layout** — a vertical stack: terminal, then a single **trend band**
     that draws CPU / RAM / Disk / Network on one shared time axis (multi-row SVG,
     each band to its own scale), then compact telemetry rows with real limits
     beside a Connection panel (address, uptime, process count, runtime, sample

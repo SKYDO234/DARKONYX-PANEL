@@ -250,7 +250,7 @@
     return `<div class="col gap-8" style="padding:18px">${Array.from({ length: rows }).map(() => `<div class="skel" style="height:44px"></div>`).join('')}</div>`;
   }
 
-  function sparkline(values = [], { color = '#8b5cf6', height = 46, fill = true } = {}) {
+  function sparkline(values = [], { color = '#e8a33d', height = 46, fill = true } = {}) {
     const vals = values.length ? values.map(Number) : [0];
     const max = Math.max(...vals, 1), min = Math.min(...vals, 0);
     const span = Math.max(1, max - min);
@@ -315,27 +315,26 @@
       app.innerHTML = `
         <div class="shell">
           <aside class="rail" id="rail">
-            <div class="brand">
-              <div class="brand-mark">
-                <svg viewBox="0 0 24 24" fill="none"><path d="M12 2.6 20.5 7v10L12 21.4 3.5 17V7L12 2.6Z" stroke="#c4b5fd" stroke-width="1.4"/><path d="M12 7.4 16.6 10v4.6L12 17.2 7.4 14.6V10L12 7.4Z" fill="#8b5cf6" fill-opacity=".85"/></svg>
-              </div>
-              <div class="brand-text"><strong id="rail-brand">DARKONYX</strong><span>panel</span></div>
+            <div class="rail-top">
+              <button class="rail-logo" id="rail-logo" title="${esc((Store.settings.panel_name || 'DARKONYX'))}">${I('mark')}</button>
             </div>
             <div class="rail-scroll" id="rail-nav"></div>
             <div class="rail-footer">
-              <div class="user-card" id="rail-user">
-                <div class="avatar" id="rail-avatar">DK</div>
-                <div class="user-card-meta"><strong id="rail-username">—</strong><span id="rail-role">—</span></div>
-                <button class="icon-btn btn-xs btn-ghost" id="rail-account-btn" title="Account" style="width:26px;height:26px;border:0;background:transparent">${I('settings')}</button>
-              </div>
+              <button class="rail-user" id="rail-user" title="Account">
+                <span class="avatar" id="rail-avatar">DK</span>
+              </button>
             </div>
           </aside>
           <div class="main">
             <header class="topbar">
-              <button class="icon-btn" id="btn-menu" aria-label="Toggle navigation">${I('menu')}</button>
+              <button class="icon-btn only-mobile" id="btn-menu" aria-label="Toggle navigation">${I('menu')}</button>
+              <div class="cmdbar" id="btn-search" role="button" tabindex="0" aria-label="Search or jump to">
+                ${I('search')}
+                <span class="cmdbar-ph">Search servers, pages, people…</span>
+                <kbd>⌘K</kbd>
+              </div>
               <div class="crumbs" id="crumbs"></div>
               <div class="topbar-actions">
-                <button class="search-trigger" id="btn-search">${I('search')}<span>Jump to…</span><kbd>⌘K</kbd></button>
                 <span class="clock-chip" id="topbar-clock"></span>
                 <button class="icon-btn" id="btn-theme" aria-label="Toggle theme">${I('sun')}</button>
                 <button class="icon-btn" id="btn-signout" aria-label="Sign out">${I('logout')}</button>
@@ -359,8 +358,9 @@
       $('#btn-theme').onclick = () => Theme.toggle();
       $('#btn-search').onclick = () => Palette.open();
       $('#btn-signout').onclick = () => window.Auth.logout();
-      $('#rail-account-btn').onclick = (e) => { e.stopPropagation(); Router.go('/account'); };
-      $('#rail-user').onclick = () => Menu.user();
+      $('#rail-user').onclick = (e) => { e.stopPropagation(); Menu.user(); };
+      const logo = $('#rail-logo');
+      if (logo) logo.onclick = () => Router.go('/portal/overview');
       document.addEventListener('click', (e) => {
         if (!e.target.closest('.menu') && !e.target.closest('#rail-user')) Menu.close();
       });
@@ -376,8 +376,8 @@
       const role = Store.user ? Store.user.role : 'user';
       nav.innerHTML = NAV.filter((g) => g.roles.includes(role)).map((g) => `
         <div class="rail-group">
-          <div class="rail-group-title">${esc(g.title)}</div>
-          ${g.items.map((it) => `<a class="rail-item" data-nav="${it.id}" href="#${it.hash}" title="${esc(it.label)}">
+          <div class="rail-group-title" title="${esc(g.title)}"><span>${esc(g.title)}</span></div>
+          ${g.items.map((it) => `<a class="rail-item" data-nav="${it.id}" href="#${it.hash}" title="${esc(it.label)}" aria-label="${esc(it.label)}">
             ${I(it.icon)}<span class="rail-label">${esc(it.label)}</span>
             ${it.id === 'admin-servers' ? `<span class="rail-badge" id="nav-server-count"></span>` : ''}
           </a>`).join('')}
@@ -393,8 +393,8 @@
       if (nameEl) nameEl.textContent = u.username || 'guest';
       if (roleEl) roleEl.textContent = u.role === 'admin' ? 'Administrator' : 'Client';
       if (av) av.textContent = fmt.initials(u.username || 'DK');
-      const b = $('#rail-brand');
-      if (b) b.textContent = (Store.settings.panel_name || 'DARKONYX').replace(/\s+panel$/i, '');
+      const name = (Store.settings.panel_name || 'DARKONYX').replace(/\s+panel$/i, '');
+      document.title = `${name} — control panel`;
     },
 
     setActive(id) {
@@ -471,9 +471,8 @@
 
       this.paintBackground();
       if (s.panel_name) {
-        document.title = s.panel_name;
-        const b = $('#rail-brand');
-        if (b) b.textContent = String(s.panel_name).replace(/\s+panel$/i, '');
+        // the wordmark in the old rail is gone; the name lives in the title bar
+        document.title = `${String(s.panel_name).replace(/\s+panel$/i, '')} — control panel`;
       }
       if (s.favicon_logo) {
         const f = document.querySelector('link[rel="icon"]');
