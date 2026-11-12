@@ -50,6 +50,13 @@ counted from `panel/src/routes` + `panel/src/api`.
     counters or the process tree in `/proc`; disk is the real size of the server
     directory. Anything the host cannot measure prints "not measured" with the
     reason instead of a zero (`GET /api/servers/:id/stats`)
+    - **Section sidebar** — a vertical rail down the left of every server
+    workspace (Console, Files, Players, Worlds, Backups, Schedules, Network,
+    Databases, Sub-users, Addons, Marketplace, Activity, Settings) with the
+    page on the right; on phones it becomes an off-canvas drawer with a
+    Sections toggle and a scrim
+  - **Power bar** — Start / Restart / Stop / Force stop above the page content,
+    visible on every section
   - **Marketplace tab** — the Modrinth catalogue scoped to this server (plugins
     for Bukkit-family, mods for Forge/Fabric/NeoForge/Quilt), one-click install
     that resolves the file matching the server's loader + Minecraft version, an

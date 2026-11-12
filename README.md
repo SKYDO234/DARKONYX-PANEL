@@ -155,7 +155,7 @@ Available suites:
 |---|---|
 | `npm run test:api` | 155 endpoint checks across 27 groups |
 | `npm run test:data` | 31 checks that no telemetry is fabricated (CPU, RAM, disk, network, Docker, DB, logs) |
-| `npm run test:layout` | 24 checks on overlays, z-index, click targets, server-workspace chrome and design-system coverage |
+| `npm run test:layout` | 26 checks on overlays, z-index, click targets, the server sidebar/toolbar structure and design-system coverage |
 | `npm run test:ui` | 28 checks driving the real SPA in jsdom — login, navigation, all routes, node panels, bulk actions |
 | `npm run test:clicks` | clicks every control on all 28 routes; fails on any dead button |
 | `npm run test:page` | loads the page over HTTP and executes the real `<script src>` tags, then clicks through the sidebar and drives the console |
