@@ -168,27 +168,29 @@ console.log('\n--- server workspace chrome ---');
 console.log('\n--- console workspace structure ---');
 {
   const cj = fs.readFileSync(PATH.join(PANEL, 'public/js/console.js'), 'utf8');
-  // Structure follows the JTG-style server workspace: a two-column console row
-  // (terminal + a rail of live metric tiles) with one rolling chart per
-  // resource underneath, and the power controls living in the section rail.
-  ok('console is terminal-left, metric-rail-right', /\.csl-cols\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 292px/.test(CSS)
-    && /class="csl-cols"/.test(cj) && /class="csl-stats"/.test(cj));
-  ok('the metric rail is one tile per real resource',
-    (cj.match(/class="csl-stat"/g) || []).length >= 5
-    && ['cpu', 'memory', 'disk', 'netin', 'netout'].every((k) => new RegExp(`data-metric="${k}"`).test(cj)));
-  ok('three separate charts sit under the terminal, one per resource',
-    /\.csl-charts\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/.test(CSS)
-    && ['ch-cpu-svg', 'ch-mem-svg', 'ch-net-svg'].every((id) => cj.includes(`id="${id}"`)));
-  ok('each chart draws its own rolling window, not three copies of one card',
-    /function chartBody\(values, color, max\)/.test(cj) && (cj.match(/chartBody\(live\.samples\./g) || []).length >= 3);
-  ok('the header odometer is a real status orb, not decoration',
+  // Structure follows the Pterodactyl server console: ONE terminal card whose
+  // tools live in its own title bar, with a row of resource cards underneath.
+  // Not a terminal flanked by a rail, and not three chart cards.
+  ok('the console is a single terminal card', /<section class="console-shell con-shell" id="con-shell">/.test(cj)
+    && !/class="csl-cols"/.test(cj) && !/class="csl-bar"/.test(cj));
+  ok('the terminal tools live in the card title bar', /<div class="con-titlebar">[\s\S]{0,2600}?id="con-clear"/.test(cj)
+    && /\.con-titlebar\s*\{/.test(CSS));
+  ok('resource cards form a row under the console, not a side rail',
+    /\.csl-stats\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fit, minmax\(168px, 1fr\)\)/.test(CSS)
+    && /<\/section>\s*\n\s*<!-- the stat strip under the console/.test(cj));
+  ok('one card per measured resource, CPU / memory / disk first',
+    ['cpu', 'memory', 'disk'].every((k) => new RegExp(`data-metric="${k}"`).test(cj))
+    && (cj.match(/class="csl-stat"/g) || []).length >= 6);
+  ok('each card shows a value, its real limit and a fill line',
+    /id="con-cpu-max"/.test(cj) && /class="csl-fill"/.test(cj) && /\.csl-fill > span\s*\{/.test(CSS));
+  ok('the shell is a real status orb, not decoration',
     /class="csl-orb"/.test(cj) && /\.csl-orb\.is-running\s*\{/.test(CSS));
-  ok('focus mode hides the rail and charts, not the terminal',
-    /\.csl-wrap\.is-focus \.csl-stats/.test(CSS) && /\.csl-wrap\.is-focus \.csl-charts/.test(CSS));
-  ok('the band keeps a real gap for unmeasurable metrics instead of a flat zero',
-    /not exposed on native runs/.test(cj));
-  ok('no leftover shared-band or row-list classes in the markup',
-    !/class="csl-row"|class="csl-stack"|id="trend-bands"/.test(cj));
+  ok('focus mode hides the stat cards, not the terminal',
+    /\.csl-wrap\.is-focus \.csl-stats/.test(CSS));
+  ok('unmeasurable metrics still say why instead of a confident zero',
+    /not exposed on native runs|native runs have no per-server socket counters/.test(cj));
+  ok('the removed rail/chart layout leaves nothing behind',
+    !/chartBody|paintCharts|class="csl-chart"|id="trend-bands"/.test(cj) && !/\.csl-chart\b/.test(CSS));
 }
 
 /* ------------- 3d. visual identity is ours -------------------------------- */
