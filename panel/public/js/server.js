@@ -118,6 +118,21 @@
             </div>
           </div>
 
+          <div class="srv-power" id="power-bar">
+            <div class="srv-power-meta">
+              <span class="srv-dot" id="srv-dot" aria-hidden="true"></span>
+              <span class="srv-power-status" id="srv-rail-status">${esc(suspended ? 'suspended' : (s.status || 'offline'))}</span>
+              <button class="srv-addr mono" id="srv-rail-addr" title="Copy the connection address">${esc(serverAddress(s))}</button>
+            </div>
+            <div class="power-group" role="group" aria-label="Server power">
+              <button class="power-btn start" data-pw="start" ${suspended ? 'disabled' : ''} title="Start server"><span class="power-ico">${I('play')}</span><span class="power-label">Start</span></button>
+              <button class="power-btn restart" data-pw="restart" ${suspended ? 'disabled' : ''} title="Restart server"><span class="power-ico">${I('restart')}</span><span class="power-label">Restart</span></button>
+              <button class="power-btn stop" data-pw="stop" ${suspended ? 'disabled' : ''} title="Graceful shutdown"><span class="power-ico">${I('stop')}</span><span class="power-label">Stop</span></button>
+              <button class="power-btn kill" data-pw="kill" ${suspended ? 'disabled' : ''} title="Force stop: terminate the process immediately"><span class="power-ico">${I('skull')}</span><span class="power-label">Force stop</span></button>
+            </div>
+            <div class="power-hint" id="power-hint">${suspended ? 'Power actions disabled while suspended' : 'Ready'}</div>
+          </div>
+
           <nav class="srv-rail-nav" id="srv-tabs" role="tablist" aria-orientation="vertical">
             ${TABS.map((t) => `<button class="srv-tab ${t.id === tab ? 'active' : ''}" data-tab="${t.id}" role="tab" aria-selected="${t.id === tab}" title="${t.label}">${I(t.icon)}<span class="srv-tab-l">${t.label}</span></button>`).join('')}
           </nav>
@@ -157,16 +172,6 @@
 
           ${suspended ? `<div class="banner-strip mt-14" style="border-color:rgba(251,113,133,.35);background:linear-gradient(100deg,rgba(251,113,133,.16),transparent)">${I('alert')}<span>This server is suspended${s.expiration_date ? ` (expired ${esc(fmt.date(s.expiration_date, false))})` : ''}. Power actions are disabled until an administrator renews it.</span></div>` : ''}
 
-          <div class="power-bar" id="power-bar">
-            <div class="power-group" role="group" aria-label="Server power">
-              <button class="power-btn start" data-pw="start" ${suspended ? 'disabled' : ''} title="Start server"><span class="power-ico">${I('play')}</span><span class="power-label">Start</span></button>
-              <button class="power-btn restart" data-pw="restart" ${suspended ? 'disabled' : ''} title="Restart server"><span class="power-ico">${I('restart')}</span><span class="power-label">Restart</span></button>
-              <button class="power-btn stop" data-pw="stop" ${suspended ? 'disabled' : ''} title="Graceful shutdown"><span class="power-ico">${I('stop')}</span><span class="power-label">Stop</span></button>
-              <button class="power-btn kill" data-pw="kill" ${suspended ? 'disabled' : ''} title="Force stop: terminate the process immediately"><span class="power-ico">${I('skull')}</span><span class="power-label">Force stop</span></button>
-            </div>
-            <div class="power-hint" id="power-hint">${suspended ? 'Power actions disabled while suspended' : 'Ready'}</div>
-          </div>
-
           <div id="srv-tab-body" class="srv-tab-body mt-14"></div>
         </div>
         <div class="srv-rail-scrim" id="srv-rail-scrim" hidden></div>
@@ -184,6 +189,14 @@
     };
     if (railBtn) railBtn.onclick = () => setRail(!rail.classList.contains('is-open'));
     if (railScrim) railScrim.onclick = () => setRail(false);
+
+    // paint the status dot from the status the shell already knows
+    const dot0 = host.querySelector('#srv-dot');
+    if (dot0) dot0.setAttribute('class', `srv-dot is-${suspended ? 'suspended' : (s.status || 'offline')}`);
+
+    // the rail address copies the real connection string
+    const railAddr = host.querySelector('#srv-rail-addr');
+    if (railAddr) railAddr.onclick = () => window.el.copy(serverAddress(s));
 
     host.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => {
       setRail(false);
@@ -238,9 +251,19 @@
     (renderers[tab] || renderConsole)(body, s, perms);
   }
 
+  const STATUS_TEXT = {
+    running: 'running', starting: 'starting', restarting: 'restarting',
+    stopping: 'stopping', offline: 'offline', suspended: 'suspended'
+  };
+
   function updateStatus(status, stats) {
     const chip = document.getElementById('srv-status-chip');
     if (chip) chip.innerHTML = statusChip(status);
+    // the rail carries the live status next to the power controls
+    const dot = document.getElementById('srv-dot');
+    if (dot) dot.setAttribute('class', `srv-dot is-${status || 'offline'}`);
+    const railStatus = document.getElementById('srv-rail-status');
+    if (railStatus) railStatus.textContent = STATUS_TEXT[status] || status || 'offline';
     if (stats) paintStats(stats);
   }
 

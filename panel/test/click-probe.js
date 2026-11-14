@@ -72,14 +72,21 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       const viewEl = d.querySelector('#view-inner');
       if (viewEl) mo.observe(viewEl, { subtree: true, childList: true, characterData: true });
       const mod0 = d.querySelectorAll('#modal-root > *').length;
-      const toasts0 = d.querySelectorAll('#toast-root > *').length;
+      // count toasts by watching for ADDED nodes: toasts expire after ~4s, so a
+      // before/after count can fall simply because an old one timed out
+      let toastsAdded = 0;
+      const toastRoot = d.querySelector('#toast-root');
+      const toastMo = toastRoot ? new w.MutationObserver((recs) => {
+        for (const rec of recs) toastsAdded += rec.addedNodes.length;
+      }) : null;
+      if (toastMo) toastMo.observe(toastRoot, { childList: true });
       try { el.click(); } catch (e) { problems.push([r, label, 'THREW ' + e.message]); continue; }
       await sleep(260);
       const newErr = errors.slice(before);
       if (newErr.length) problems.push([r, label, newErr[newErr.length - 1]]);
       const modalOpened = d.querySelectorAll('#modal-root > *').length > mod0;
       // a toast (success, validation error, "nothing to do") is a real response
-      const toastShown = d.querySelectorAll('#toast-root > *').length > toasts0;
+      const toastShown = toastsAdded > 0;
       // close any modal we opened
       const x = d.querySelector('#modal-root [data-x], #modal-root [data-cancel]');
       if (x) x.click();
@@ -87,6 +94,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       const h1 = w.location.hash;
       const inner1 = (d.querySelector('#view-inner') || {}).innerHTML || '';
       mo.disconnect();
+      if (toastMo) toastMo.disconnect();
       if (h0 === h1 && inner0 === inner1 && !modalOpened && !toastShown && mutations === 0)
         problems.push([r, label, 'NO-OP (no nav, no modal, no repaint)']);
     }
