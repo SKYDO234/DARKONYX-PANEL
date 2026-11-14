@@ -22,7 +22,6 @@
     expanded: 'dkx.con.expanded'
   };
   const MAX_LINES = 3000;      // keep the DOM sane on a chatty server
-  const SAMPLE_CAP = 40;       // rolling chart window (40 × 1.5 s ≈ 60 s)
 
   const live = {
     host: null,
@@ -41,7 +40,6 @@
     wrap: true,
     timestamps: false,
     expanded: false,
-    samples: { cpu: [], memory: [], disk: [], rx: [], tx: [] },
     lastStats: null,
     statsTimer: null,
     statsFails: 0,
@@ -112,61 +110,6 @@
       .replace(/\u0002/g, '</mark>');
   }
 
-  /* ---------------------------------------------------------------- trend bands */
-  /* One shared time axis, one band per metric (CPU / RAM / Disk / Network), each
-     drawn to its own scale with a label in the gutter. This is deliberately not
-     the "three identical cards containing copies of a copied chart component"
-     layout: every band shares the same x-axis so a spike in one is directly
-     readable against the others, and gaps are drawn as gaps. */
-  function bandPath(values, max, top, height) {
-    const n = values.length;
-    if (!n) return '';
-    const w = 100;
-    const span = Math.max(1, SAMPLE_CAP - 1);
-    const y = (v) => top + height - clamp(v / (max > 0 ? max : 1), 0, 1) * height;
-    const pts = [];
-    values.forEach((v, i) => {
-      if (v === null || v === undefined || !isFinite(v)) return;
-      const x = ((SAMPLE_CAP - n + i) / span) * w;
-      pts.push([x, y(v)]);
-    });
-    if (!pts.length) return '';
-    const line = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(2)} ${p[1].toFixed(2)}`).join(' ');
-    return `${line} L${pts[pts.length - 1][0].toFixed(2)} ${top + height} L${pts[0][0].toFixed(2)} ${top + height} Z`;
-  }
-
-  /* Three separate chart bodies, each with its own y-scale and its own rolling
-     window. Values are pushed once per sample and drawn as an area so a spike
-     is visible at a glance; an unmeasurable metric says so in the head instead
-     of drawing a flat zero line. */
-  function chartBody(values, color, max) {
-    const H = 190;
-    const W = 100;
-    const n = values.length;
-    if (!n) return '<div class="csl-chart-empty">no sample yet</div>';
-    const span = Math.max(1, SAMPLE_CAP - 1);
-    const top = H;
-    const y = (v) => 6 + (H - 12) - clamp(v / (max > 0 ? max : 1), 0, 1) * (H - 12);
-    const pts = [];
-    values.forEach((v, i) => {
-      if (v === null || v === undefined || !isFinite(v)) return;
-      pts.push([((SAMPLE_CAP - n + i) / span) * W, y(v)]);
-    });
-    if (!pts.length) return '<div class="csl-chart-empty">no sample yet</div>';
-    const line = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(2)} ${p[1].toFixed(2)}`).join(' ');
-    const area = `${line} L${pts[pts.length - 1][0].toFixed(2)} ${top} L${pts[0][0].toFixed(2)} ${top} Z`;
-    const gid = `cg-${color.replace('#', '')}`;
-    return `<svg class="csl-spark" viewBox="0 0 100 ${H}" preserveAspectRatio="none" role="img">
-      <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="${color}" stop-opacity=".34"/>
-        <stop offset="100%" stop-color="${color}" stop-opacity=".02"/>
-      </linearGradient></defs>
-      <line class="csl-axis" x1="0" y1="${H}" x2="100" y2="${H}"/>
-      <path d="${area}" fill="url(#${gid})"/>
-      <path d="${line}" fill="none" stroke="${color}" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
-    </svg>`;
-  }
-
   /* ------------------------------------------------------------------ shell */
   function render(host, server, ctl) {
     destroy();
@@ -181,7 +124,6 @@
     live.onlyMatches = false;
     live.hits = [];
     live.hitIndex = 0;
-    live.samples = { cpu: [], memory: [], disk: [], rx: [], tx: [] };
     live.lastStats = null;
     live.statsFails = 0;
     live.font = Number(stored(LS.font, '12.2')) || 12.2;
@@ -194,128 +136,113 @@
     host.innerHTML = `
       <div class="csl-wrap">
 
-        <!-- console header: identity + terminal tools -->
-        <div class="csl-bar">
-          <span class="csl-orb" id="con-orb" title="Server status"></span>
-          <b class="csl-name" title="${esc(server.name)}">${esc(server.name)}</b>
-          <span id="con-status">${statusChip(suspended ? 'suspended' : (server.status || 'offline'))}</span>
-          <span class="con-mode" id="con-mode">—</span>
-          <span class="grow"></span>
-          <div class="con-tools">
-            <button class="con-tool" id="con-find" title="Search the console (Ctrl+F)">${I('search')}<span class="hide-sm">Find</span></button>
-            <div class="con-fs">
-              <button class="con-tool sq" id="con-fs-down" title="Smaller text">A−</button>
-              <select class="con-fs-select" id="con-fs" title="Console text size">
-                ${[10, 11, 12, 12.2, 13, 14, 16, 18].map((sz) => `<option value="${sz}" ${Math.abs(sz - live.font) < 0.05 ? 'selected' : ''}>${sz}px</option>`).join('')}
-              </select>
-              <button class="con-tool sq" id="con-fs-up" title="Larger text">A+</button>
+        <!-- one console card: title bar with the terminal tools, output, command line -->
+        <section class="console-shell con-shell" id="con-shell">
+          <div class="con-titlebar">
+            <span class="csl-orb" id="con-orb" title="Server status"></span>
+            <b class="con-title-name" title="${esc(server.name)}">${esc(server.name)}</b>
+            <span id="con-status">${statusChip(suspended ? 'suspended' : (server.status || 'offline'))}</span>
+            <span class="con-mode" id="con-mode">—</span>
+            <span class="grow"></span>
+            <div class="con-tools">
+              <button class="con-tool" id="con-find" title="Search the console (Ctrl+F)">${I('search')}<span class="hide-sm">Find</span></button>
+              <div class="con-fs">
+                <button class="con-tool sq" id="con-fs-down" title="Smaller text">A−</button>
+                <select class="con-fs-select" id="con-fs" title="Console text size">
+                  ${[10, 11, 12, 12.2, 13, 14, 16, 18].map((sz) => `<option value="${sz}" ${Math.abs(sz - live.font) < 0.05 ? 'selected' : ''}>${sz}px</option>`).join('')}
+                </select>
+                <button class="con-tool sq" id="con-fs-up" title="Larger text">A+</button>
+              </div>
+              <button class="con-tool" id="con-wrap" title="Toggle line wrapping">${I('code')}<span class="hide-sm">Wrap</span></button>
+              <button class="con-tool" id="con-time" title="Prefix each line with the time it arrived">${I('clock')}<span class="hide-sm">Time</span></button>
+              <button class="con-tool" id="con-expand" title="Full-screen the terminal">${I('external')}<span class="hide-sm">Focus</span></button>
+              <button class="con-tool" id="con-download" title="Download this log">${I('download')}<span class="hide-sm">Log</span></button>
+              <button class="con-tool" id="con-copy" title="Copy the visible console">${I('copy')}</button>
+              <button class="con-tool danger" id="con-clear" title="Clear this view only — the server log on disk is untouched">${I('trash')}<span class="hide-sm">Clear</span></button>
             </div>
-            <button class="con-tool" id="con-wrap" title="Toggle line wrapping">${I('code')}<span class="hide-sm">Wrap</span></button>
-            <button class="con-tool" id="con-time" title="Prefix each line with the time it arrived">${I('clock')}<span class="hide-sm">Time</span></button>
-            <button class="con-tool" id="con-expand" title="Full-screen the terminal">${I('external')}<span class="hide-sm">Focus</span></button>
-            <button class="con-tool" id="con-download" title="Download this log">${I('download')}<span class="hide-sm">Log</span></button>
-            <button class="con-tool" id="con-copy" title="Copy the visible console">${I('copy')}</button>
-            <button class="con-tool danger" id="con-clear" title="Clear this view only — the server log on disk is untouched">${I('trash')}<span class="hide-sm">Clear</span></button>
           </div>
-        </div>
 
-        <!-- terminal on the left, live metrics on the right -->
-        <div class="csl-cols">
-          <section class="console-shell con-shell" id="con-shell">
-            <div class="con-findbar" id="con-findbar" hidden>
-              <label class="con-find-input">
-                ${I('search')}
-                <input id="con-query" placeholder="Filter console output — text or regular expression" autocomplete="off" spellcheck="false" />
-              </label>
-              <span class="con-hits" id="con-hits">no matches</span>
-              <button class="con-tool sq" id="con-prev" title="Previous match">${I('chevronUp')}</button>
-              <button class="con-tool sq" id="con-next" title="Next match">${I('chevronDown')}</button>
-              <label class="con-only"><input type="checkbox" id="con-only" /> <span>Only matches</span></label>
-              <button class="con-tool sq" id="con-find-close" title="Close">${I('x')}</button>
-            </div>
+          <div class="con-findbar" id="con-findbar" hidden>
+            <label class="con-find-input">
+              ${I('search')}
+              <input id="con-query" placeholder="Filter console output — text or regular expression" autocomplete="off" spellcheck="false" />
+            </label>
+            <span class="con-hits" id="con-hits">no matches</span>
+            <button class="con-tool sq" id="con-prev" title="Previous match">${I('chevronUp')}</button>
+            <button class="con-tool sq" id="con-next" title="Next match">${I('chevronDown')}</button>
+            <label class="con-only"><input type="checkbox" id="con-only" /> <span>Only matches</span></label>
+            <button class="con-tool sq" id="con-find-close" title="Close">${I('x')}</button>
+          </div>
 
-            <div class="console-out con-out" id="con-out" tabindex="0" aria-live="polite"></div>
-            <button class="con-jump" id="con-jump" hidden>${I('arrowRight')} Jump to latest</button>
+          <div class="console-out con-out" id="con-out" tabindex="0" aria-live="polite"></div>
+          <button class="con-jump" id="con-jump" hidden>${I('arrowRight')} Jump to latest</button>
 
-            <div class="con-quick" id="con-quick">
-              ${[['list', 'players'], ['save-all', 'save world'], ['say Restarting soon', 'broadcast'], ['tps', 'tick rate'], ['whitelist on', 'whitelist']]
-          .map(([c, label]) => `<button class="con-chip" data-quick="${esc(c)}" title="${esc(c)}">${esc(label)}</button>`).join('')}
-              <span class="grow"></span>
-              <span class="con-count" id="con-count">0 lines</span>
-            </div>
+          <div class="con-quick" id="con-quick">
+            ${[['list', 'players'], ['save-all', 'save world'], ['say Restarting soon', 'broadcast'], ['tps', 'tick rate'], ['whitelist on', 'whitelist']]
+        .map(([c, label]) => `<button class="con-chip" data-quick="${esc(c)}" title="${esc(c)}">${esc(label)}</button>`).join('')}
+            <span class="grow"></span>
+            <span class="con-count" id="con-count">0 lines</span>
+          </div>
 
-            <form class="console-in con-in" id="con-form" autocomplete="off">
-              <span class="prompt">${I('chevronRight')}</span>
-              <input id="con-cmd" placeholder="${suspended ? 'Server suspended — commands are disabled' : 'Type a command and press Enter — ↑ recalls history'}"
-                autocomplete="off" spellcheck="false" ${suspended ? 'disabled' : ''} />
-              <button class="con-tool sq" id="con-hist" title="History (↑)">${I('clock')}</button>
-              <button class="btn btn-sm btn-primary" type="submit" id="con-send" ${suspended ? 'disabled' : ''}>Send</button>
-            </form>
-          </section>
+          <form class="console-in con-in" id="con-form" autocomplete="off">
+            <span class="prompt">${I('chevronRight')}</span>
+            <input id="con-cmd" placeholder="${suspended ? 'Server suspended — commands are disabled' : 'Type a command and press Enter — ↑ recalls history'}"
+              autocomplete="off" spellcheck="false" ${suspended ? 'disabled' : ''} />
+            <button class="con-tool sq" id="con-hist" title="History (↑)">${I('clock')}</button>
+            <button class="btn btn-sm btn-primary" type="submit" id="con-send" ${suspended ? 'disabled' : ''}>Send</button>
+          </form>
+        </section>
 
-          <aside class="csl-stats" id="csl-stats" aria-label="Live server metrics">
-            <div class="csl-stat">
-              <span class="csl-watermark">${I('network')}</span>
-              <span class="csl-k">Address</span>
-              <button class="csl-v csl-copy mono" id="con-addr" title="Copy the game address">${esc(ctl.address || '—')}</button>
-            </div>
-            <div class="csl-stat">
-              <span class="csl-watermark">${I('clock')}</span>
-              <span class="csl-k">Uptime</span>
-              <b class="csl-v" id="con-uptime">${server.status === 'running' ? '—' : 'offline'}</b>
-            </div>
-            <div class="csl-stat" data-metric="cpu">
-              <span class="csl-watermark">${I('cpu')}</span>
-              <span class="csl-k">CPU load</span>
-              <span class="csl-v"><b id="con-cpu-v">—</b><em id="con-cpu-p"></em></span>
-              <span class="csl-limit" id="con-cpu-max">—</span>
-              <span class="csl-fill"><span style="width:0%"></span></span>
-            </div>
-            <div class="csl-stat" data-metric="memory">
-              <span class="csl-watermark">${I('memory')}</span>
-              <span class="csl-k">Memory</span>
-              <span class="csl-v"><b id="con-mem-v">—</b><em id="con-mem-p"></em></span>
-              <span class="csl-limit" id="con-mem-max">—</span>
-              <span class="csl-fill"><span style="width:0%"></span></span>
-            </div>
-            <div class="csl-stat" data-metric="disk">
-              <span class="csl-watermark">${I('disk')}</span>
-              <span class="csl-k">Disk</span>
-              <span class="csl-v"><b id="con-disk-v">—</b><em id="con-disk-p"></em></span>
-              <span class="csl-limit" id="con-disk-max">—</span>
-              <span class="csl-fill"><span style="width:0%"></span></span>
-            </div>
-            <div class="csl-stat" data-metric="netin">
-              <span class="csl-watermark">${I('downloadCloud')}</span>
-              <span class="csl-k">Network in</span>
-              <span class="csl-v"><b id="con-nin-v">—</b><em id="con-nin-t"></em></span>
-            </div>
-            <div class="csl-stat" data-metric="netout">
-              <span class="csl-watermark">${I('uploadCloud')}</span>
-              <span class="csl-k">Network out</span>
-              <span class="csl-v"><b id="con-nout-v">—</b><em id="con-nout-t"></em></span>
-            </div>
-            <div class="csl-provenance" id="con-note">Waiting for the first telemetry sample…</div>
-          </aside>
-        </div>
+        <!-- the stat strip under the console: one card per measured resource -->
+        <section class="csl-stats" id="csl-stats" aria-label="Live server metrics">
+          <div class="csl-stat" data-metric="cpu">
+            <span class="csl-watermark">${I('cpu')}</span>
+            <span class="csl-k">CPU usage</span>
+            <span class="csl-v"><b id="con-cpu-v">—</b><em id="con-cpu-p"></em></span>
+            <span class="csl-limit" id="con-cpu-max">—</span>
+            <span class="csl-fill"><span style="width:0%"></span></span>
+          </div>
+          <div class="csl-stat" data-metric="memory">
+            <span class="csl-watermark">${I('memory')}</span>
+            <span class="csl-k">Memory usage</span>
+            <span class="csl-v"><b id="con-mem-v">—</b><em id="con-mem-p"></em></span>
+            <span class="csl-limit" id="con-mem-max">—</span>
+            <span class="csl-fill"><span style="width:0%"></span></span>
+          </div>
+          <div class="csl-stat" data-metric="disk">
+            <span class="csl-watermark">${I('disk')}</span>
+            <span class="csl-k">Disk usage</span>
+            <span class="csl-v"><b id="con-disk-v">—</b><em id="con-disk-p"></em></span>
+            <span class="csl-limit" id="con-disk-max">—</span>
+            <span class="csl-fill"><span style="width:0%"></span></span>
+          </div>
+          <div class="csl-stat">
+            <span class="csl-watermark">${I('clock')}</span>
+            <span class="csl-k">Uptime</span>
+            <span class="csl-v"><b id="con-uptime">${server.status === 'running' ? '—' : 'offline'}</b></span>
+            <span class="csl-limit">since boot</span>
+          </div>
+          <div class="csl-stat">
+            <span class="csl-watermark">${I('network')}</span>
+            <span class="csl-k">Address</span>
+            <button class="csl-v csl-copy mono" id="con-addr" title="Copy the game address">${esc(ctl.address || '—')}</button>
+            <span class="csl-limit">click to copy</span>
+          </div>
+          <div class="csl-stat" data-metric="netin">
+            <span class="csl-watermark">${I('downloadCloud')}</span>
+            <span class="csl-k">Network in</span>
+            <span class="csl-v"><b id="con-nin-v">—</b><em id="con-nin-t"></em></span>
+            <span class="csl-limit">—</span>
+          </div>
+          <div class="csl-stat" data-metric="netout">
+            <span class="csl-watermark">${I('uploadCloud')}</span>
+            <span class="csl-k">Network out</span>
+            <span class="csl-v"><b id="con-nout-v">—</b><em id="con-nout-t"></em></span>
+            <span class="csl-limit">—</span>
+          </div>
+        </section>
 
-        <!-- three rolling charts under the terminal, one per resource -->
-        <div class="csl-charts">
-          <section class="csl-chart">
-            <div class="csl-chart-head"><h3>CPU load</h3><b id="ch-cpu">—</b></div>
-            <div class="csl-chart-body" id="ch-cpu-svg"></div>
-          </section>
-          <section class="csl-chart">
-            <div class="csl-chart-head"><h3>Memory</h3><b id="ch-mem">—</b></div>
-            <div class="csl-chart-body" id="ch-mem-svg"></div>
-          </section>
-          <section class="csl-chart">
-            <div class="csl-chart-head"><h3>Network</h3><b id="ch-net">—</b>
-              <span class="csl-chart-keys"><i style="background:#38bdf8"></i>in <i style="background:#fbbf24"></i>out</span>
-            </div>
-            <div class="csl-chart-body" id="ch-net-svg"></div>
-          </section>
-        </div>
+        <div class="csl-note" id="con-note">Waiting for the first telemetry sample…</div>
       </div>`;
 
     const out = host.querySelector('#con-out');
@@ -700,7 +627,6 @@
       } catch (e) { live.statsFails++; }
     }, 4000);
 
-    paintCharts();
 
     if (live.follow) setTimeout(scrollToEnd, 30);
     setTimeout(() => { try { cmd.focus(); } catch (e) {} }, 120);
@@ -761,13 +687,6 @@
       }
     }
 
-    function pushSample(key, value) {
-      if (!isFinite(value) || value === null) return;
-      const arr = live.samples[key];
-      arr.push(value);
-      if (arr.length > SAMPLE_CAP) arr.shift();
-    }
-
     function applyStats(st) {
       if (!st) return;
       live.lastStats = st;
@@ -808,7 +727,6 @@
         setText('con-cpu-v', `${cpu.toFixed(2)}%`);
         setText('con-cpu-p', `${Math.round(pct)}%`);
         fill('cpu', pct);
-        pushSample('cpu', cpu);
       }
 
       /* Memory */
@@ -820,7 +738,6 @@
         setText('con-mem-v', fmt.mb(st.memory));
         setText('con-mem-p', memLimit ? `${Math.round(pct)}%` : 'no limit set');
         fill('memory', pct);
-        pushSample('memory', st.memory);
       }
 
       /* Disk — always measurable: it is the directory's real size */
@@ -832,7 +749,6 @@
         setText('con-disk-v', fmt.mb(st.disk));
         setText('con-disk-p', diskLimit ? `${Math.round(pct)}%` : 'no quota set');
         fill('disk', pct);
-        pushSample('disk', st.disk);
       }
 
       /* Network — only containers expose per-server counters */
@@ -847,21 +763,13 @@
         measured('netin');
         setText('con-nin-v', `${fmt.bytes(rx)}/s`);
         setText('con-nin-t', net.rx_bytes !== null && net.rx_bytes !== undefined ? `${fmt.bytes(net.rx_bytes)} total` : '');
-        pushSample('rx', rx);
       }
       if (tx === null) { unmeasured('netout', 'native runs have no per-server socket counters'); setText('con-nout-t', ''); }
       else {
         measured('netout');
         setText('con-nout-v', `${fmt.bytes(tx)}/s`);
         setText('con-nout-t', net.tx_bytes !== null && net.tx_bytes !== undefined ? `${fmt.bytes(net.tx_bytes)} total` : '');
-        pushSample('tx', tx);
       }
-      if (rx === null && tx === null) {
-        // the network band keeps its place in the stack and simply says why it
-        // has no line, instead of inventing a flat zero
-        setText('ch-net', st.mode === 'docker' ? 'waiting for a sample' : 'not exposed on native runs');
-      }
-
       /* provenance line */
       const note = host.querySelector('#con-note');
       if (note) {
@@ -873,43 +781,7 @@
         note.textContent = bits.join(' · ');
       }
 
-      paintCharts();
       if (live.ctl.setStats) live.ctl.setStats(st);
-    }
-
-    /* One repaint for the whole band: every metric shares the same x-axis, so
-       the legend values and the bands can never drift out of sync with each
-       other or show a sample count that is not in the drawing. */
-    function paintCharts() {
-      const box = (id) => host.querySelector('#' + id);
-      const last = (arr) => (arr.length ? arr[arr.length - 1] : undefined);
-      const cpuV = last(live.samples.cpu);
-      const memV = last(live.samples.memory);
-      const rxV = last(live.samples.rx);
-      const txV = last(live.samples.tx);
-
-      const cpuMax = (live.lastStats && num(live.lastStats.cpu_limit)) || 100;
-      const memMax = (live.lastStats && num(live.lastStats.memory_limit)) || Number(server.memory_mb) || 0;
-      const netMax = Math.max(1, ...live.samples.rx, ...live.samples.tx);
-
-      const b1 = box('ch-cpu-svg');
-      if (b1) b1.innerHTML = chartBody(live.samples.cpu, '#f0b866', cpuMax);
-      const b2 = box('ch-mem-svg');
-      if (b2) b2.innerHTML = chartBody(live.samples.memory, '#34d399', memMax);
-      const b3 = box('ch-net-svg');
-      if (b3) {
-        // both directions share one axis, so a read spike and a write spike are
-        // directly comparable; each is drawn separately rather than summed
-        b3.innerHTML = live.samples.rx.length || live.samples.tx.length
-          ? `<div class="csl-pair">${chartBody(live.samples.rx, '#38bdf8', netMax)}${chartBody(live.samples.tx, '#fbbf24', netMax)}</div>`
-          : chartBody([], '#38bdf8', 1);
-      }
-
-      setText('ch-cpu', cpuV === undefined ? '—' : `${cpuV.toFixed(1)}%`);
-      setText('ch-mem', memV === undefined ? '—' : fmt.mb(memV));
-      setText('ch-net', rxV === undefined && txV === undefined
-        ? '—'
-        : `↓${fmt.bytes(rxV || 0)}/s ↑${fmt.bytes(txV || 0)}/s`);
     }
 
     // expose the ingest/stats hooks used by the shared socket
