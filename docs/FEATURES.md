@@ -54,14 +54,14 @@ counted from `panel/src/routes` + `panel/src/api`.
     panels, a fine engineering grid behind a single warm bloom, a compact icon
     dock, a real command bar (⌘K) in the top bar, and a single centred sign-in
     card. Deliberately not the violet-on-black glass dashboard look
-  - **Console layout** — the JTG-style server workspace: a header strip with a
-    live status orb, the server name and the terminal tools, then a two-column
-    row with the **terminal on the left** and a **rail of live metric tiles on
-    the right** (address, uptime, CPU, memory, disk, network in/out — each with
-    its value, its real limit and a thin fill line), then **three rolling
-    charts** under the terminal (CPU, memory, network) each with its own
-    y-scale and 60 s window. Focus mode hides the rail and charts and gives the
-    terminal the viewport
+  - **Console layout** — the Pterodactyl-style server console: **one terminal
+    card** whose own title bar holds the identity (status orb, name, chip,
+    runtime mode) and every terminal tool (Find, A−/A+, Wrap, Time, Focus, Log,
+    Copy, Clear), with the output, quick commands and command line inside the
+    card; **a row of resource cards directly underneath** for CPU usage, memory
+    usage, disk usage, uptime, address, network in and network out, each showing
+    the measured value, its real limit and a fill line. Focus mode hides the
+    cards and gives the terminal the viewport
   - **Section sidebar** — a vertical rail down the left of every server
     workspace (Console, Files, Players, Worlds, Backups, Schedules, Network,
     Databases, Sub-users, Addons, Marketplace, Activity, Settings) with the
